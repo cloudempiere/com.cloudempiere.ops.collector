@@ -31,10 +31,21 @@ import com.cloudempiere.ops.collector.api.OpsStatusService;
  * REST app mounts under {@code /api/v1/} — wire docker/ALB health checks accordingly).
  * <p>
  * Backed by the exported {@link OpsStatusService} (looked up via OSGi — JAX-RS resources are
- * not DS components). <b>Auth (B2 TODO):</b> probes are open (Tier 0, like {@code CacheMetaResource});
- * {@code plugins}/{@code events} are read-only operational data but still need the 4-tier identity
- * auth + server-side tenant filtering of §4.7; {@code warmup} mutates the runtime and is disabled
- * unless {@code OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true} pending the Tier-3 confirm-token.
+ * not DS components).
+ * <p>
+ * <b>Auth.</b> The REST app's global {@code CLDERequestFilter} already enforces identity on every
+ * resource, so {@code startup}/{@code plugins}/{@code events}/{@code warmup} are protected by the
+ * M2M / PIN / usercard Bearer JWT automatically — this resource adds <i>no</i> filter. The probes
+ * ({@code livez}/{@code readyz}/{@code startupz}) are intercepted by that filter too, but must be
+ * reachable by the ALB/docker health prober, which cannot send an {@code Authorization} header.
+ * They therefore need a dedicated low-privilege monitoring credential — a provisioned PIN/usercard
+ * value, or a new {@code AD_AuthorizationToken} type — passed as a query param and validated
+ * directly in {@code CLDERequestFilter} (the {@code v1/health ?key=} pattern, backed by
+ * {@code AD_AuthorizationToken}). <b>That probe-credential exemption is a deferred follow-up
+ * (CLD-1912); until it lands the probes will 401 behind the global filter, so do NOT point the ALB
+ * target-group check at these paths yet.</b> {@code warmup} additionally stays gated by
+ * {@code OPS_COLLECTOR_WARMUP_HTTP_ENABLED}. Server-side tenant filtering of plugins/events (§4.7)
+ * is also TODO.
  *
  * @author CloudEmpiere
  */
