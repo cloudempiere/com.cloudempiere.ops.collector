@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="com.cloudempiere.ops.trace.webui.feature"
+      label="CloudEmpiere Webui Trace Enrichment"
+      version="1.0.0.qualifier"
+      provider-name="CloudEmpiere">
+
+   <description url="https://github.com/cloudempiere/com.cloudempiere.ops.collector">
+      OTel span enrichment for the iDempiere ZK webui (ADR-001 §11.1): stamps user/client/
+      role/session/desktop and active window/tab/table/record onto the /zkau request span.
+      A fragment of org.adempiere.ui.zk — install ONLY on webui (ZK) tiers.
+   </description>
+
+   <copyright url="https://www.cloudempiere.com">
+      Copyright (C) 2026 CloudEmpiere Contributors
+   </copyright>
+
+   <license url="http://www.gnu.org/licenses/gpl-2.0.html">
+      GNU General Public License v2 or later.
+   </license>
+
+   <plugin
+         id="com.cloudempiere.ops.trace.webui"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         fragment="true"
+         unpack="false"/>
+
+</feature>

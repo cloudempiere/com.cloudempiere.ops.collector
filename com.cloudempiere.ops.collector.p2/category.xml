@@ -3,7 +3,10 @@
    <feature id="com.cloudempiere.ops.collector.feature" version="1.0.0.qualifier">
       <category name="cloudempiere.ops.collector"/>
    </feature>
+   <feature id="com.cloudempiere.ops.trace.webui.feature" version="1.0.0.qualifier">
+      <category name="cloudempiere.ops.collector"/>
+   </feature>
    <category-def name="cloudempiere.ops.collector" label="CloudEmpiere Operational Observability Collector">
-      <description>In-JVM OSGi observability collector for iDempiere (ADR-001)</description>
+      <description>In-JVM OSGi observability collector for iDempiere (ADR-001). Includes the webui trace-enrichment fragment (install only on ZK tiers).</description>
    </category-def>
 </site>

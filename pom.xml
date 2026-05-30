@@ -14,7 +14,9 @@
 	<modules>
 		<!-- Build order: bundles -> features -> p2 (P2 must be LAST). -->
 		<module>com.cloudempiere.ops.collector</module>
+		<module>com.cloudempiere.ops.trace.webui</module>
 		<module>com.cloudempiere.ops.collector.feature</module>
+		<module>com.cloudempiere.ops.trace.webui.feature</module>
 		<module>com.cloudempiere.ops.collector.p2</module>
 	</modules>
 </project>
