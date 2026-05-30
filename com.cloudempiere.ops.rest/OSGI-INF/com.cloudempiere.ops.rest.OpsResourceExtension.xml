@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.4.0"
+      immediate="true"
+      name="com.cloudempiere.ops.rest.OpsResourceExtension">
+   <implementation class="com.cloudempiere.ops.rest.OpsResourceExtension"/>
+   <service>
+      <provide interface="com.trekglobal.idempiere.rest.api.ResourceExtension"/>
+   </service>
+</scr:component>

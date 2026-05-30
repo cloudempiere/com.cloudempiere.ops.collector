@@ -26,6 +26,9 @@
 		     CI overrides via -Didempiere.core.repository.url; local dev uses the
 		     cloudempiere-local profile below. -->
 		<idempiere.core.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/iDempiereCLDE/develop/latest/</idempiere.core.repository.url>
+		<!-- CLDE REST fork P2 — provides com.trekglobal.idempiere.rest.api (ResourceExtension SPI).
+		     Needed only by the optional com.cloudempiere.ops.rest transport bundle. -->
+		<idempiere.rest.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/com.trekglobal.idempiere.rest.custom/staging/latest/</idempiere.rest.repository.url>
 	</properties>
 
 	<build>
@@ -156,6 +159,11 @@
 					<url>${idempiere.core.repository.url}</url>
 					<layout>p2</layout>
 				</repository>
+				<repository>
+					<id>idempiere-rest</id>
+					<url>${idempiere.rest.repository.url}</url>
+					<layout>p2</layout>
+				</repository>
 			</repositories>
 			<build>
 				<plugins>
@@ -224,6 +232,7 @@
 			<properties>
 				<cloudempiere.workspace>${user.home}/github/idempiere-cloudempiere</cloudempiere.workspace>
 				<idempiere.core.repository.url>file:///${cloudempiere.workspace}/iDempiereCLDE/core/org.idempiere.p2/target/repository</idempiere.core.repository.url>
+				<idempiere.rest.repository.url>file:///${cloudempiere.workspace}/.p2-cache/rest</idempiere.rest.repository.url>
 			</properties>
 		</profile>
 	</profiles>
