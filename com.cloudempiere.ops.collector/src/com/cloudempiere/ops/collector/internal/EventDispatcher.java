@@ -18,6 +18,8 @@ import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicy;
+import org.osgi.service.event.EventAdmin;
 
 import com.cloudempiere.ops.collector.api.OpsEvent;
 import com.cloudempiere.ops.collector.api.Severity;
@@ -47,11 +49,18 @@ public class EventDispatcher {
 	/** Single logger name for the whole bundle (ADR-001 §4.13). */
 	private static final CLogger log = CLogger.getCLogger("com.cloudempiere.ops.collector");
 
+	/** OSGi EventAdmin topic base; per-event type is appended (dots → slashes). */
+	private static final String TOPIC_BASE = "com/cloudempiere/ops/collector";
+
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private SeverityClassifier severityClassifier;
 
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private TenantEnricher tenantEnricher;
+
+	/** Optional in-JVM bus (sink #3). Absent ⇒ stdout floor still works (sink isolation). */
+	@Reference(cardinality = ReferenceCardinality.OPTIONAL, policy = ReferencePolicy.DYNAMIC)
+	private volatile EventAdmin eventAdmin;
 
 	@Activate
 	void activate() {
@@ -97,8 +106,31 @@ public class EventDispatcher {
 		log.log(Level.SEVERE, toJson(event));
 
 		// 2. TODO Phase 3: otel.emit(event)  — wrap in try/catch, log.warn on failure.
-		// 3. TODO: eventAdmin.postEvent(toOsgiEvent(event)) — wrap in try/catch.
+
+		// 3. In-JVM bus (best-effort, isolated): post async so the hot path never blocks,
+		// and any EventAdmin failure is swallowed — it must never pressure the floor.
+		EventAdmin ea = this.eventAdmin;
+		if (ea != null) {
+			try {
+				ea.postEvent(toOsgiEvent(event));
+			} catch (Throwable t) {
+				log.log(Level.WARNING, "EventAdmin sink down", t);
+			}
+		}
 		// No DB write on the hot path — the DB sink is a separate async EventAdmin consumer.
+	}
+
+	/** Build an OSGi event: hierarchical topic per event type + flat properties for filtering,
+	 *  plus the typed {@link OpsEvent} under {@code ops_event} for in-JVM consumers. */
+	private static org.osgi.service.event.Event toOsgiEvent(OpsEvent e) {
+		Map<String, Object> props = new HashMap<>();
+		props.put("event_id", e.getEventId());
+		props.put("event_type", e.getEventType());
+		props.put("severity", e.getSeverity() == null ? null : e.getSeverity().name());
+		props.put("timestamp", e.getTimestamp());
+		props.put("ops_event", e);
+		String topic = TOPIC_BASE + "/" + (e.getEventType() == null ? "unknown" : e.getEventType().replace('.', '/'));
+		return new org.osgi.service.event.Event(topic, props);
 	}
 
 	/**
