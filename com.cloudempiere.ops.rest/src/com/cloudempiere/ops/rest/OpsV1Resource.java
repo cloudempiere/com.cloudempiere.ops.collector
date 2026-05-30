@@ -5,6 +5,7 @@
 package com.cloudempiere.ops.rest;
 
 import java.util.List;
+import java.util.Properties;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -14,6 +15,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import org.compiere.util.Env;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.osgi.framework.Bundle;
@@ -84,6 +86,9 @@ public class OpsV1Resource {
 
 	@GET @Path("startup") @Produces(MediaType.APPLICATION_JSON)
 	public Response startup() {
+		Caller c = caller();                       // boot status leaks bundle/component names
+		if (!c.authenticated) return unauthenticated();
+		if (!c.systemAdmin) return forbidden();    // System Admin only
 		OpsStatusService s = status();
 		if (s == null) return unavailable();
 		return json(200, new JSONObject(s.startup()));
@@ -91,6 +96,9 @@ public class OpsV1Resource {
 
 	@GET @Path("plugins") @Produces(MediaType.APPLICATION_JSON)
 	public Response plugins() {
+		Caller c = caller();                       // full bundle/DS list is system-level (§4.7 leak risk)
+		if (!c.authenticated) return unauthenticated();
+		if (!c.systemAdmin) return forbidden();    // System Admin only — bundles aren't tenant-owned
 		OpsStatusService s = status();
 		if (s == null) return unavailable();
 		return json(200, new JSONObject(s.plugins()));
@@ -98,11 +106,17 @@ public class OpsV1Resource {
 
 	@GET @Path("events") @Produces(MediaType.APPLICATION_JSON)
 	public Response events(@QueryParam("max") int max) {
+		Caller c = caller();
+		if (!c.authenticated) return unauthenticated();
 		OpsStatusService s = status();
 		if (s == null) return unavailable();
 		int limit = max > 0 ? max : 100;
 		JSONArray arr = new JSONArray();
-		for (OpsEvent e : s.events(limit)) arr.put(eventToJson(e));
+		// Server-side tenant filtering (§4.7): System Admin sees all; a tenant admin sees only
+		// events scoped to its own AD_Client_ID. System-level events (no tenant) → System Admin only.
+		for (OpsEvent e : s.events(limit)) {
+			if (c.systemAdmin || tenantMatches(e, c.clientId)) arr.put(eventToJson(e));
+		}
 		return json(200, new JSONObject().put("events", arr));
 	}
 
@@ -110,6 +124,9 @@ public class OpsV1Resource {
 
 	@POST @Path("warmup") @Produces(MediaType.APPLICATION_JSON)
 	public Response warmup() {
+		Caller c = caller();
+		if (!c.authenticated) return unauthenticated();
+		if (!c.systemAdmin) return forbidden();    // mutating; System Admin only
 		if (!"true".equalsIgnoreCase(System.getenv("OPS_COLLECTOR_WARMUP_HTTP_ENABLED"))) {
 			return json(403, new JSONObject()
 					.put("status", "disabled")
@@ -121,6 +138,32 @@ public class OpsV1Resource {
 	}
 
 	// ---- helpers ----
+
+	/** Caller identity from the authed Env (set by CLDERequestFilter before this resource runs). */
+	private static final class Caller {
+		final boolean authenticated;
+		final boolean systemAdmin;
+		final int clientId;
+		Caller(boolean auth, boolean sysAdmin, int clientId) {
+			this.authenticated = auth; this.systemAdmin = sysAdmin; this.clientId = clientId;
+		}
+	}
+
+	private static Caller caller() {
+		Properties ctx = Env.getCtx();
+		String userId = Env.getContext(ctx, "#AD_User_ID");
+		if (userId == null || userId.isEmpty()) {
+			return new Caller(false, false, -1);   // not authenticated (shouldn't happen behind the filter)
+		}
+		int clientId = Env.getAD_Client_ID(ctx);
+		// rac-as-authority: AD_Client_ID 0 = System client ⇒ System Admin (sees all tenants).
+		return new Caller(true, clientId == 0, clientId);
+	}
+
+	private static boolean tenantMatches(OpsEvent e, int clientId) {
+		Object tc = e.getTenant().get("ad_client_id");
+		return tc instanceof Number && ((Number) tc).intValue() == clientId;
+	}
 
 	private static OpsStatusService status() {
 		Bundle b = FrameworkUtil.getBundle(OpsV1Resource.class);
@@ -154,6 +197,14 @@ public class OpsV1Resource {
 
 	private static Response unavailable() {
 		return json(503, new JSONObject().put("status", "unavailable"));
+	}
+
+	private static Response unauthenticated() {
+		return json(401, new JSONObject().put("status", "unauthenticated"));
+	}
+
+	private static Response forbidden() {
+		return json(403, new JSONObject().put("status", "forbidden").put("reason", "System Admin scope required"));
 	}
 
 	private static Response json(int code, JSONObject body) {
