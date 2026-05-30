@@ -8,7 +8,11 @@
 package com.cloudempiere.ops.collector.internal;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -62,9 +66,35 @@ public class EventDispatcher {
 	@Reference(cardinality = ReferenceCardinality.OPTIONAL, policy = ReferencePolicy.DYNAMIC)
 	private volatile EventAdmin eventAdmin;
 
+	/** Bounded in-memory ring buffer backing GET /ops/v1/events (§4.7). Guarded by itself. */
+	private final Deque<OpsEvent> ring = new ArrayDeque<>();
+	private int ringMax = 5000;
+
 	@Activate
 	void activate() {
-		log.info("CloudEmpiere ops collector EventDispatcher active (stdout floor armed)");
+		ringMax = envInt("OPS_COLLECTOR_EVENT_BUFFER_SIZE", 5000);
+		log.info("CloudEmpiere ops collector EventDispatcher active (stdout floor armed, ring=" + ringMax + ")");
+	}
+
+	/** Most-recent events, newest last, capped at {@code max} (for GET /ops/v1/events). */
+	public List<OpsEvent> recentEvents(int max) {
+		synchronized (ring) {
+			int n = ring.size();
+			int from = (max > 0 && max < n) ? n - max : 0;
+			List<OpsEvent> out = new ArrayList<>(n - from);
+			int i = 0;
+			for (OpsEvent e : ring) {
+				if (i++ >= from) out.add(e);
+			}
+			return out;
+		}
+	}
+
+	private static int envInt(String name, int fallback) {
+		String v = System.getenv(name);
+		if (v == null || v.isEmpty()) return fallback;
+		try { int n = Integer.parseInt(v.trim()); return n > 0 ? n : fallback; }
+		catch (NumberFormatException e) { return fallback; }
 	}
 
 	/**
@@ -102,6 +132,12 @@ public class EventDispatcher {
 	 * is wrapped so its failure is logged and swallowed (never propagated).
 	 */
 	public void emit(OpsEvent event) {
+		// 0. Ring buffer (bounded) for GET /ops/v1/events.
+		synchronized (ring) {
+			ring.addLast(event);
+			while (ring.size() > ringMax) ring.removeFirst();
+		}
+
 		// 1. FLOOR — always. Routes to the iDempiere log stream → container stdout.
 		log.log(Level.SEVERE, toJson(event));
 

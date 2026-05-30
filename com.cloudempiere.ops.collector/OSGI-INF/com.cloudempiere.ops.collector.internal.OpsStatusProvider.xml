@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.4.0"
+      name="com.cloudempiere.ops.collector.internal.OpsStatusProvider"
+      activate="activate">
+   <implementation class="com.cloudempiere.ops.collector.internal.OpsStatusProvider"/>
+   <service>
+      <provide interface="com.cloudempiere.ops.collector.api.OpsStatusService"/>
+   </service>
+   <reference name="boot"
+         interface="com.cloudempiere.ops.collector.internal.BootPhaseTracker"
+         cardinality="1..1" policy="static" field="boot"/>
+   <reference name="shutdown"
+         interface="com.cloudempiere.ops.collector.internal.ShutdownHandler"
+         cardinality="1..1" policy="static" field="shutdown"/>
+   <reference name="warmupRunner"
+         interface="com.cloudempiere.ops.collector.internal.WarmupRunner"
+         cardinality="1..1" policy="static" field="warmupRunner"/>
+   <reference name="dispatcher"
+         interface="com.cloudempiere.ops.collector.internal.EventDispatcher"
+         cardinality="1..1" policy="static" field="dispatcher"/>
+   <reference name="scr"
+         interface="org.osgi.service.component.runtime.ServiceComponentRuntime"
+         cardinality="1..1" policy="static" field="scr"/>
+</scr:component>
