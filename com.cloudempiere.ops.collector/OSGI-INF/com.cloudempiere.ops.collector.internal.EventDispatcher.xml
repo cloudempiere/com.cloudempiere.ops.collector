@@ -7,4 +7,14 @@
    <service>
       <provide interface="com.cloudempiere.ops.collector.internal.EventDispatcher"/>
    </service>
+   <reference name="severityClassifier"
+         interface="com.cloudempiere.ops.collector.internal.SeverityClassifier"
+         cardinality="1..1"
+         policy="static"
+         field="severityClassifier"/>
+   <reference name="tenantEnricher"
+         interface="com.cloudempiere.ops.collector.internal.TenantEnricher"
+         cardinality="1..1"
+         policy="static"
+         field="tenantEnricher"/>
 </scr:component>

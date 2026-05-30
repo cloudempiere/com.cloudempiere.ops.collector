@@ -23,8 +23,6 @@ import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 
-import com.cloudempiere.ops.collector.api.Severity;
-
 /**
  * Live source of bundle + framework lifecycle events, per ADR-001 §4.4.
  * <p>
@@ -72,7 +70,7 @@ public class BundleLifecycleSource implements BundleListener, FrameworkListener 
 			subject.put("bundle_version", String.valueOf(b.getVersion()));
 			Map<String, Object> details = new HashMap<>();
 			details.put("bundle_event", event.getType() == BundleEvent.STARTED ? "STARTED" : "STOPPED");
-			dispatcher.emit(Severity.AUDIT, "plugin.lifecycle.recovered", subject, details);
+			dispatcher.emit("plugin.lifecycle.recovered", subject, details);
 		}
 	}
 
@@ -87,7 +85,7 @@ public class BundleLifecycleSource implements BundleListener, FrameworkListener 
 			Map<String, Object> details = new HashMap<>();
 			Throwable t = event.getThrowable();
 			details.put("failure_message", t != null ? String.valueOf(t.getMessage()) : "FrameworkEvent ERROR");
-			dispatcher.emit(Severity.PANIC, "plugin.framework.error", subject, details);
+			dispatcher.emit("plugin.framework.error", subject, details);
 		}
 	}
 }

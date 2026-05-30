@@ -18,8 +18,6 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 
-import com.cloudempiere.ops.collector.api.Severity;
-
 /**
  * One-shot scan of every bundle's state at collector activation, per ADR-001 §4.4.
  * <p>
@@ -68,6 +66,6 @@ public class ColdStartScanner {
 		subject.put("bundle_version", String.valueOf(b.getVersion()));
 		Map<String, Object> details = new HashMap<>();
 		details.put("state", "INSTALLED");
-		dispatcher.emit(Severity.PANIC, "plugin.resolution.failed", subject, details);
+		dispatcher.emit("plugin.resolution.failed", subject, details);
 	}
 }

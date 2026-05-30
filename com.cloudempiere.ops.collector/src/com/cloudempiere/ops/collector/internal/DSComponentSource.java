@@ -29,8 +29,6 @@ import org.osgi.service.component.runtime.dto.ComponentConfigurationDTO;
 import org.osgi.service.component.runtime.dto.ComponentDescriptionDTO;
 import org.osgi.service.component.runtime.dto.UnsatisfiedReferenceDTO;
 
-import com.cloudempiere.ops.collector.api.Severity;
-
 /**
  * The unique signal of ADR-001 (§4.4 / §4.9 Strategy A): polls {@link ServiceComponentRuntime}
  * for Declarative Services component state and emits when a component is
@@ -126,7 +124,7 @@ public class DSComponentSource {
 		}
 		if (cc.failure != null) details.put("failure_message", cc.failure);
 
-		dispatcher.emit(Severity.PANIC,
+		dispatcher.emit(
 				failedActivation ? "plugin.component.failed_activation" : "plugin.component.unsatisfied",
 				subject, details);
 	}
@@ -135,7 +133,7 @@ public class DSComponentSource {
 		Map<String, Object> subject = new HashMap<>();
 		subject.put("kind", "ds_component");
 		subject.put("component", componentName);
-		dispatcher.emit(Severity.AUDIT, "plugin.lifecycle.recovered", subject, new HashMap<>());
+		dispatcher.emit("plugin.lifecycle.recovered", subject, new HashMap<>());
 	}
 
 	private static String stateName(int state) {

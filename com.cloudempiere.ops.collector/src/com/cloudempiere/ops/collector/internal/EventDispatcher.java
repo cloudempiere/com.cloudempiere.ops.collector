@@ -8,6 +8,7 @@
 package com.cloudempiere.ops.collector.internal;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -15,6 +16,8 @@ import java.util.logging.Level;
 import org.compiere.util.CLogger;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
 
 import com.cloudempiere.ops.collector.api.OpsEvent;
 import com.cloudempiere.ops.collector.api.Severity;
@@ -44,21 +47,45 @@ public class EventDispatcher {
 	/** Single logger name for the whole bundle (ADR-001 §4.13). */
 	private static final CLogger log = CLogger.getCLogger("com.cloudempiere.ops.collector");
 
+	@Reference(cardinality = ReferenceCardinality.MANDATORY)
+	private SeverityClassifier severityClassifier;
+
+	@Reference(cardinality = ReferenceCardinality.MANDATORY)
+	private TenantEnricher tenantEnricher;
+
 	@Activate
 	void activate() {
 		log.info("CloudEmpiere ops collector EventDispatcher active (stdout floor armed)");
 	}
 
-	/** Convenience: build an envelope and emit it. */
+	/**
+	 * Emit by type — the preferred path. Severity is derived by {@link SeverityClassifier} so
+	 * emitters never hardcode it, and the tenant block is added by {@link TenantEnricher}.
+	 */
+	public void emit(String eventType, Map<String, Object> subject, Map<String, Object> details) {
+		emit(severityClassifier.classify(eventType), eventType, subject, details);
+	}
+
+	/** Build an envelope (with tenant enrichment) and emit it, with an explicit severity. */
 	public void emit(Severity severity, String eventType,
 			Map<String, Object> subject, Map<String, Object> details) {
-		OpsEvent event = OpsEvent.builder(eventType, severity)
+		OpsEvent.Builder b = OpsEvent.builder(eventType, severity)
 				.eventId(UUID.randomUUID().toString())
 				.timestamp(Instant.now().toString())
 				.subject(subject)
-				.details(details)
-				.build();
-		emit(event);
+				.details(details);
+		Map<String, Object> tenant = currentTenant();
+		if (tenant != null) b.tenant(tenant);
+		emit(b.build());
+	}
+
+	/** Tenant block ({@code ad_client_id} only) when the current thread carries tenant context. */
+	private Map<String, Object> currentTenant() {
+		int clientId = tenantEnricher.currentClientId();
+		if (clientId < 0) return null;
+		Map<String, Object> tenant = new HashMap<>();
+		tenant.put("ad_client_id", clientId);
+		return tenant;
 	}
 
 	/**
