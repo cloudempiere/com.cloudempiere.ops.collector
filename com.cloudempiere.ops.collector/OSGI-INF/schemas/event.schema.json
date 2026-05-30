@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudempiere.com/schemas/ops-collector/event-1.0.json",
+  "title": "CloudEmpiere ops collector event envelope",
+  "description": "ADR-001 §4.8. Frozen as schema_version 1.0 after Phase 2 runs in prod for one month; evolve via the schema_version field.",
+  "type": "object",
+  "required": ["schema_version", "event_id", "event_type", "severity", "timestamp", "source", "aggregation_hint"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "event_id": { "type": "string", "description": "uuid-v4" },
+    "event_type": {
+      "type": "string",
+      "description": "Dotted event type, e.g. plugin.component.failed_activation (§4.8 required set)."
+    },
+    "severity": { "enum": ["PANIC", "ALERT", "AUDIT"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "aggregation_hint": {
+      "enum": ["per_task", "per_cluster", "per_tenant"],
+      "description": "How consumers may combine this value across fleet tasks (§4.17.2)."
+    },
+    "source": {
+      "type": "object",
+      "description": "Task identity, populated once at activation from ECS task metadata (§4.17.1).",
+      "properties": {
+        "service": { "type": "string" },
+        "ecs_task_arn": { "type": "string" },
+        "ecs_task_id": { "type": "string" },
+        "container_id": { "type": "string" },
+        "private_ip": { "type": "string" },
+        "started_at": { "type": "string" },
+        "iDempiere_version": { "type": "string" },
+        "collector_version": { "type": "string" },
+        "bundle_version_hash": { "type": "string" },
+        "deployment_color": { "type": "string" },
+        "deployment_environment": { "type": "string" },
+        "ad_client_scope": { "type": "array", "items": { "type": "integer" } },
+        "cluster_id": { "type": "string" }
+      }
+    },
+    "tenant": {
+      "type": "object",
+      "properties": {
+        "ad_client_id": { "type": "integer" },
+        "ad_client_name": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "description": "bundle | ds_component | framework | 2pack ..." },
+        "bundle": { "type": "string" },
+        "bundle_version": { "type": "string" },
+        "component": { "type": "string" }
+      }
+    },
+    "details": {
+      "type": "object",
+      "description": "Event-type specific payload (state, missing_references, failure_message, stack_trace ...)."
+    },
+    "trace_id": { "type": "string", "description": "Correlates event → OTel trace → logs (§4.8)." },
+    "span_id": { "type": "string" },
+    "dedupe_hash": {
+      "type": "string",
+      "description": "sha256(event_type + bundle + component + failure_message) (§4.8 dedupe rule)."
+    }
+  }
+}

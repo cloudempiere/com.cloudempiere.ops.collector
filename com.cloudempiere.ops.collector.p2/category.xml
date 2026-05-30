@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+   <feature id="com.cloudempiere.ops.collector.feature" version="1.0.0.qualifier">
+      <category name="cloudempiere.ops.collector"/>
+   </feature>
+   <category-def name="cloudempiere.ops.collector" label="CloudEmpiere Operational Observability Collector">
+      <description>In-JVM OSGi observability collector for iDempiere (ADR-001)</description>
+   </category-def>
+</site>
