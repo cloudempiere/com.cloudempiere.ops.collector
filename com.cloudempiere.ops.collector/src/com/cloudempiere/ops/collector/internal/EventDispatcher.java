@@ -115,6 +115,8 @@ public class EventDispatcher {
 				.details(details);
 		Map<String, Object> tenant = currentTenant();
 		if (tenant != null) b.tenant(tenant);
+		String[] trace = OtelContext.currentTraceAndSpan();   // §4.8 correlation (no-op without the OTel agent)
+		if (trace != null) b.traceId(trace[0]).spanId(trace[1]);
 		emit(b.build());
 	}
 
@@ -182,6 +184,8 @@ public class EventDispatcher {
 		field(sb, "severity", e.getSeverity() == null ? null : e.getSeverity().name()).append(',');
 		field(sb, "timestamp", e.getTimestamp()).append(',');
 		field(sb, "aggregation_hint", e.getAggregationHint());
+		if (e.getTraceId() != null) { sb.append(','); field(sb, "trace_id", e.getTraceId()); }
+		if (e.getSpanId() != null) { sb.append(','); field(sb, "span_id", e.getSpanId()); }
 		// subject/details/source intentionally summarized for the scaffold floor.
 		sb.append('}');
 		return sb.toString();
