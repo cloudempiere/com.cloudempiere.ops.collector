@@ -18,11 +18,24 @@ iDempiere ECS task → verify → iterate. Three paths, by need:
 |---|---|---|---|---|
 | **A — Durable** | one line in `clde-infra` `plugins.list` → image rebuild bakes it in | new image/task | a real release | production-bound |
 | **B — Runtime** | `versions/<env>.json` + `CE_PLUGINS_AT_RUNTIME=true` → `resolve-plugins-runtime.sh` runs `update-prd.sh` at task start | task (re)start | staging without rebuild; **any** plugin (SAT-correct) | most staging tests |
-| **C — Hot iterate** | OSGi console `install`+`start` (script below) | **none** | **only** plugins whose deps are already in the running framework | tight build→test loops |
+| **C — Hot iterate** | OSGi console `install`+`start` (script below) | **none** | deps already in the framework **and** dynamic activation (DS `immediate`) — **NOT** boot-gated contributions | tight build→test loops |
 
 **Default to B.** It uses the canonical installer and is SAT-correct for cross-plugin
 deps. Use C only for the rapid loop and only for low-dependency plugins (see its caveat).
 Use A when it's going to production.
+
+> **Install ≠ activation — the dropped-restart rule (learned 2026-05-31, ADR-001 §11.4).**
+> chuboe's install scripts end with **`service idempiere restart`**; our `clde-osgi-deploy.sh`
+> deliberately dropped it for hot-iteration. That restart is what makes the framework *re-read*
+> the install. So Path C activates only things that register **dynamically** at runtime (a DS
+> `immediate` component like the collector core). It **cannot** activate **boot-gated**
+> contributions — anything read once at framework start: a **ZK `Fragment-Host` whose
+> `metainfo/zk/config.xml` is scanned at webapp init**, `Service-Component` headers resolved at
+> launch, etc. Proven live: console `install`+`refresh <host>` *attached* the webui fragment
+> (`RESOLVED, Master=<host>`) but the enricher never registered — no restart, no re-scan. For
+> boot-gated bundles the install MUST be present at framework start → **Path A (bake)** or
+> **Path B (`update-prd.sh` at task start)**; on Fargate a mid-life `update-prd.sh` + task restart
+> just discards the change (ephemeral FS, no `CE_PLUGINS_AT_RUNTIME`). There is no Path-C path for them.
 
 ## The canonical machinery (clde-infra/images/idempiere-clde)
 
