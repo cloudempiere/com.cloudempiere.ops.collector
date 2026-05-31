@@ -16,3 +16,4 @@ Import-Package: javax.ws.rs;version="[2.0,3)",
  org.osgi.service.component.annotations;version="[1.3,2)",
  org.compiere.util
 Service-Component: OSGI-INF/*.xml
+Bundle-ActivationPolicy: lazy

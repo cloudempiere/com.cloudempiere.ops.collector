@@ -25,4 +25,5 @@ Import-Package: org.osgi.framework;version="[1.10,2)",
 Web-ContextPath: ops
 Jetty-WarPatchFragmentFolderPath: /
 Service-Component: OSGI-INF/*.xml
+Bundle-ActivationPolicy: lazy
 Export-Package: com.cloudempiere.ops.collector.api;version="1.0.0"
