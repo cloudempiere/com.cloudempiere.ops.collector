@@ -20,63 +20,51 @@ import com.cloudempiere.ops.trace.webui.internal.OtelSpan;
 /**
  * Identity layer of the webui span enrichment (ADR-001 §11.1).
  * <p>
- * Runs on the <b>servlet thread</b> in {@link #init} — where the OTel agent's {@code /zkau}
- * server span IS the current span — and stamps <i>who/where</i> business context onto it so a
- * slow click in X-Ray shows the user / client / role / session / desktop, not just the SQL.
- * Registered as a ZK {@code <listener>} via {@code metainfo/zk/config.xml}; this bundle is a
- * fragment of {@code org.adempiere.ui.zk} so ZK discovers that config on the host classpath.
- * <p>
- * Identity is done here (not in the {@link WebuiEventEnricher}) precisely because of the
- * §11.1 event-thread caveat: {@code Span.current()} is reliably the request span on the
- * servlet thread. Everything is fully guarded — a telemetry failure must never break a click.
+ * <b>Capture at init, stamp at cleanup (CLD-1912 §11.4 verdict).</b> The diagnostic proved
+ * {@code Span.current()} is the <i>no-op</i> span at {@link #init} (servlet/QTP thread,
+ * {@code spanValid=false}) — the OTel agent records/exports the {@code /zkau} server span but does not
+ * make it current in the {@code Context} that early. The span <i>does</i> become current deeper in the
+ * request (the agent's nested JDBC child spans prove it) and is still current at request end. So we:
+ * <ol>
+ *   <li>capture the iDempiere identity at {@link #init} — where {@code Env} is populated on this thread; and</li>
+ *   <li>stamp it onto the span at {@link #cleanup} — where the agent's span is current.</li>
+ * </ol>
+ * A best-effort stamp also runs at init in case the span is already current there. {@code cleanup} logs
+ * its own {@code spanValid} (bounded) so we can confirm from logs that the span is current at that point.
  *
  * @author CloudEmpiere
  */
 public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 
 	private static final CLogger log = CLogger.getCLogger(WebuiSpanEnricher.class);
-	/** Bounds the §11.4 diagnostic to the first authenticated executions, so it doesn't flood. */
-	private static final AtomicInteger DIAG = new AtomicInteger(0);
+	private static final String STASH = "ops.trace.identity";   // exec-scoped captured identity
+	private static final AtomicInteger DIAG_INIT = new AtomicInteger(0);
+	private static final AtomicInteger DIAG_CLEAN = new AtomicInteger(0);
 
 	@Override
 	public void init(Execution exec, Execution parent) {
-		// §11.4 diagnostic: for the first authenticated executions, record whether this is the
-		// outermost execution (parent==null), which thread we're on, and whether Span.current()
-		// is a valid recording span here. This settles WHY attrs don't land on logged-in /zkau:
-		//   parent never null on a click  -> the guard skips clicks (relax it)
-		//   parent==null but span invalid -> the agent's span isn't current on this thread/scope
-		try {
-			if (Env.getAD_User_ID(Env.getCtx()) > 0 && DIAG.getAndIncrement() < 12) {
-				log.warning("[ops.trace.webui] DIAG init: parentNull=" + (parent == null)
-						+ " thread=" + Thread.currentThread().getName()
-						+ " spanValid=" + OtelSpan.currentSpanValid()
-						+ " uid=" + Env.getAD_User_ID(Env.getCtx()));
-			}
-		} catch (Throwable ignore) {
-			// diagnostics must never affect the request
-		}
-
 		// Only the outermost execution carries the request span; skip included/forwarded ones.
-		// (OTel API is now a real compile dependency — no availability gate; setAttribute no-ops
-		// harmlessly when the agent is off.)
 		if (parent != null) return;
 		try {
 			Properties ctx = Env.getCtx();
-			OtelSpan.setLong("ad.client_id", Env.getAD_Client_ID(ctx));
-			OtelSpan.setLong("ad.user_id", Env.getAD_User_ID(ctx));
-			OtelSpan.setLong("ad.role_id", Env.getAD_Role_ID(ctx));
-			OtelSpan.setLong("ad.session_id", Env.getContextAsInt(ctx, "#AD_Session_ID"));
-
-			String userName = Env.getContext(ctx, "#AD_User_Name");
-			if (userName != null && !userName.isEmpty()) {
-				OtelSpan.setStr("enduser.id", userName);            // OTel semconv (queryable in X-Ray)
-			} else {
-				int uid = Env.getAD_User_ID(ctx);
-				if (uid > 0) OtelSpan.setStr("enduser.id", Integer.toString(uid));
-			}
-
+			Identity id = new Identity();
+			id.clientId = Env.getAD_Client_ID(ctx);
+			id.userId = Env.getAD_User_ID(ctx);
+			id.roleId = Env.getAD_Role_ID(ctx);
+			id.sessionId = Env.getContextAsInt(ctx, "#AD_Session_ID");
+			id.userName = Env.getContext(ctx, "#AD_User_Name");
 			Desktop desktop = exec.getDesktop();
-			if (desktop != null) OtelSpan.setStr("zk.desktop_id", desktop.getId());
+			id.desktopId = desktop != null ? desktop.getId() : null;
+			// Stash now (Env is populated on this servlet thread); stamp the span at cleanup (span current there).
+			exec.setAttribute(STASH, id);
+			// Best-effort: if the span happens to be current already at init, stamp now too.
+			if (OtelSpan.currentSpanValid()) stamp(id);
+
+			if (id.userId > 0 && DIAG_INIT.getAndIncrement() < 12) {
+				log.warning("[ops.trace.webui] DIAG init: parentNull=true thread="
+						+ Thread.currentThread().getName() + " spanValid=" + OtelSpan.currentSpanValid()
+						+ " uid=" + id.userId);
+			}
 		} catch (Throwable t) {
 			// never propagate — enrichment is best-effort
 		}
@@ -84,6 +72,39 @@ public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 
 	@Override
 	public void cleanup(Execution exec, Execution parent, List<Throwable> errs) {
-		// no-op: attributes were set on the request span during init().
+		if (parent != null) return;
+		try {
+			Object stashed = exec.getAttribute(STASH);
+			if (!(stashed instanceof Identity)) return;
+			Identity id = (Identity) stashed;
+			if (id.userId > 0 && DIAG_CLEAN.getAndIncrement() < 12) {
+				log.warning("[ops.trace.webui] DIAG cleanup: thread=" + Thread.currentThread().getName()
+						+ " spanValid=" + OtelSpan.currentSpanValid() + " uid=" + id.userId);
+			}
+			// Span is current at request end (within the agent's still-open server-span scope) → attrs land.
+			stamp(id);
+		} catch (Throwable t) {
+			// never propagate
+		}
+	}
+
+	/** Stamp the captured identity onto whatever span is current now (no-op if invalid). */
+	private static void stamp(Identity id) {
+		OtelSpan.setLong("ad.client_id", id.clientId);
+		OtelSpan.setLong("ad.user_id", id.userId);
+		OtelSpan.setLong("ad.role_id", id.roleId);
+		OtelSpan.setLong("ad.session_id", id.sessionId);
+		if (id.userName != null && !id.userName.isEmpty()) {
+			OtelSpan.setStr("enduser.id", id.userName);            // OTel semconv (queryable in X-Ray)
+		} else if (id.userId > 0) {
+			OtelSpan.setStr("enduser.id", Integer.toString(id.userId));
+		}
+		if (id.desktopId != null) OtelSpan.setStr("zk.desktop_id", id.desktopId);
+	}
+
+	/** Request-scoped capture of the iDempiere identity, computed at init, stamped at cleanup. */
+	private static final class Identity {
+		int clientId, userId, roleId, sessionId;
+		String userName, desktopId;
 	}
 }
