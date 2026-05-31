@@ -6,7 +6,9 @@ package com.cloudempiere.ops.trace.webui;
 
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.compiere.util.CLogger;
 import org.compiere.util.Env;
 import org.zkoss.zk.ui.Desktop;
 import org.zkoss.zk.ui.Execution;
@@ -32,8 +34,28 @@ import com.cloudempiere.ops.trace.webui.internal.OtelSpan;
  */
 public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 
+	private static final CLogger log = CLogger.getCLogger(WebuiSpanEnricher.class);
+	/** Bounds the §11.4 diagnostic to the first authenticated executions, so it doesn't flood. */
+	private static final AtomicInteger DIAG = new AtomicInteger(0);
+
 	@Override
 	public void init(Execution exec, Execution parent) {
+		// §11.4 diagnostic: for the first authenticated executions, record whether this is the
+		// outermost execution (parent==null), which thread we're on, and whether Span.current()
+		// is a valid recording span here. This settles WHY attrs don't land on logged-in /zkau:
+		//   parent never null on a click  -> the guard skips clicks (relax it)
+		//   parent==null but span invalid -> the agent's span isn't current on this thread/scope
+		try {
+			if (Env.getAD_User_ID(Env.getCtx()) > 0 && DIAG.getAndIncrement() < 12) {
+				log.warning("[ops.trace.webui] DIAG init: parentNull=" + (parent == null)
+						+ " thread=" + Thread.currentThread().getName()
+						+ " spanValid=" + OtelSpan.currentSpanValid()
+						+ " uid=" + Env.getAD_User_ID(Env.getCtx()));
+			}
+		} catch (Throwable ignore) {
+			// diagnostics must never affect the request
+		}
+
 		// Only the outermost execution carries the request span; skip included/forwarded ones.
 		// (OTel API is now a real compile dependency — no availability gate; setAttribute no-ops
 		// harmlessly when the agent is off.)
