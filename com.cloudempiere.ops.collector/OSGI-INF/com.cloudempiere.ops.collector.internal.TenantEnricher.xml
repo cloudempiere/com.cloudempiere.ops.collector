@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.4.0"
+      name="com.cloudempiere.ops.collector.internal.TenantEnricher">
+   <implementation class="com.cloudempiere.ops.collector.internal.TenantEnricher"/>
+   <service>
+      <provide interface="com.cloudempiere.ops.collector.internal.TenantEnricher"/>
+   </service>
+</scr:component>

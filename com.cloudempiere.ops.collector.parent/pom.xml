@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>com.cloudempiere</groupId>
+	<artifactId>com.cloudempiere.ops.collector.parent</artifactId>
+	<version>1.0.0-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	<name>Maven parent project for CloudEmpiere Operational Observability Collector</name>
+
+	<properties>
+		<tycho.version>2.7.5</tycho.version>
+		<tycho.extras.version>${tycho.version}</tycho.extras.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<!-- JavaSE-11: matches the iDempiere 10 / Java 11 runtime and the rest of the
+		     workspace. ADR-001 §4.1 mentions JavaSE-17; bump here (and in the bundle
+		     MANIFEST BREE) only once core moves to v13+/Java 17. -->
+		<maven.compiler.source>11</maven.compiler.source>
+		<maven.compiler.target>11</maven.compiler.target>
+		<idempiere.version>10.0.0</idempiere.version>
+		<maven-clean-plugin.version>2.5</maven-clean-plugin.version>
+		<lifecycle.mapping.version>1.0.0</lifecycle.mapping.version>
+		<!-- iDempiere core P2 (org.adempiere.base, org.eclipse.osgi, OSGi services).
+		     CI overrides via -Didempiere.core.repository.url; local dev uses the
+		     cloudempiere-local profile below. -->
+		<idempiere.core.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/iDempiereCLDE/develop/latest/</idempiere.core.repository.url>
+		<!-- CLDE REST fork P2 — provides com.trekglobal.idempiere.rest.api (ResourceExtension SPI).
+		     Needed only by the optional com.cloudempiere.ops.rest transport bundle. -->
+		<idempiere.rest.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/com.trekglobal.idempiere.rest.custom/staging/latest/</idempiere.rest.repository.url>
+	</properties>
+
+	<build>
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-clean-plugin</artifactId>
+					<version>${maven-clean-plugin.version}</version>
+				</plugin>
+				<plugin>
+					<!-- https://www.eclipse.org/m2e/documentation/m2e-execution-not-covered.html -->
+					<groupId>org.eclipse.m2e</groupId>
+					<artifactId>lifecycle-mapping</artifactId>
+					<version>${lifecycle.mapping.version}</version>
+					<configuration>
+						<lifecycleMappingMetadata>
+							<pluginExecutions>
+								<pluginExecution>
+									<pluginExecutionFilter>
+										<groupId>org.apache.maven.plugins</groupId>
+										<artifactId>maven-clean-plugin</artifactId>
+										<versionRange>[2.5,)</versionRange>
+										<goals>
+											<goal>clean</goal>
+										</goals>
+									</pluginExecutionFilter>
+									<action>
+										<ignore/>
+									</action>
+								</pluginExecution>
+							</pluginExecutions>
+						</lifecycleMappingMetadata>
+					</configuration>
+				</plugin>
+				<plugin>
+					<groupId>org.eclipse.tycho</groupId>
+					<artifactId>tycho-compiler-plugin</artifactId>
+					<version>${tycho.version}</version>
+					<configuration>
+						<verbose>true</verbose>
+						<compilerArgs>
+							<arg>-parameters</arg>
+						</compilerArgs>
+					</configuration>
+				</plugin>
+				<plugin>
+					<groupId>org.eclipse.tycho</groupId>
+					<artifactId>tycho-p2-director-plugin</artifactId>
+					<version>${tycho.version}</version>
+				</plugin>
+				<plugin>
+					<groupId>org.eclipse.tycho</groupId>
+					<artifactId>tycho-p2-repository-plugin</artifactId>
+					<version>${tycho.version}</version>
+				</plugin>
+				<plugin>
+					<groupId>org.eclipse.tycho.extras</groupId>
+					<artifactId>tycho-p2-extras-plugin</artifactId>
+					<version>${tycho.extras.version}</version>
+				</plugin>
+				<plugin>
+					<groupId>org.eclipse.tycho</groupId>
+					<artifactId>tycho-ds-plugin</artifactId>
+					<version>${tycho.version}</version>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+		<plugins>
+			<plugin>
+				<!-- enable the Tycho build extension -->
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-maven-plugin</artifactId>
+				<version>${tycho.version}</version>
+				<extensions>true</extensions>
+			</plugin>
+			<!-- enable source bundle generation -->
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-source-plugin</artifactId>
+				<version>${tycho.version}</version>
+				<executions>
+					<execution>
+						<id>plugin-source</id>
+						<goals>
+							<goal>plugin-source</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-packaging-plugin</artifactId>
+				<version>${tycho.version}</version>
+				<configuration>
+					<format>'v'yyyyMMdd-HHmm</format>
+				</configuration>
+			</plugin>
+			<!-- Generate OSGi DS descriptors (OSGI-INF/*.xml) from R7 @Component
+			     annotations. ADR-001 §4.4 mandates DS annotations, no BundleActivator. -->
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-ds-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>generate-ds</id>
+						<goals>
+							<goal>declarative-services</goal>
+						</goals>
+						<configuration>
+							<dsVersion>1.4</dsVersion>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+
+	<profiles>
+		<profile>
+			<id>build.ops.collector</id>
+			<activation>
+				<property><name>!disable.extensions</name></property>
+			</activation>
+			<repositories>
+				<repository>
+					<id>idempiere-core</id>
+					<url>${idempiere.core.repository.url}</url>
+					<layout>p2</layout>
+				</repository>
+				<repository>
+					<id>idempiere-rest</id>
+					<url>${idempiere.rest.repository.url}</url>
+					<layout>p2</layout>
+				</repository>
+			</repositories>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.eclipse.tycho</groupId>
+						<artifactId>target-platform-configuration</artifactId>
+						<version>${tycho.version}</version>
+						<configuration>
+							<targetDefinitionIncludeSource>honor</targetDefinitionIncludeSource>
+							<dependency-resolution>
+								<!-- The bundle declares optional Import-Package on OTel (Phase 3) and
+								     log4j2 that are not yet on the core target platform. 'ignore' lets
+								     the manifest faithfully declare that intent (ADR-001 §4.2) while
+								     still resolving today; they bind at runtime if present. -->
+								<optionalDependencies>ignore</optionalDependencies>
+								<extraRequirements>
+									<requirement>
+										<type>eclipse-plugin</type>
+										<id>org.eclipse.core.runtime</id>
+										<versionRange>0.0.0</versionRange>
+									</requirement>
+									<requirement>
+										<type>eclipse-plugin</type>
+										<id>org.eclipse.equinox.common</id>
+										<versionRange>0.0.0</versionRange>
+									</requirement>
+								</extraRequirements>
+							</dependency-resolution>
+							<environments>
+								<environment>
+									<os>linux</os>
+									<ws>gtk</ws>
+									<arch>x86_64</arch>
+								</environment>
+								<environment>
+									<os>win32</os>
+									<ws>win32</ws>
+									<arch>x86_64</arch>
+								</environment>
+								<environment>
+									<os>macosx</os>
+									<ws>cocoa</ws>
+									<arch>x86_64</arch>
+								</environment>
+								<environment>
+									<os>macosx</os>
+									<ws>cocoa</ws>
+									<arch>aarch64</arch>
+								</environment>
+							</environments>
+							<executionEnvironmentDefault>JavaSE-11</executionEnvironmentDefault>
+							<executionEnvironment>JavaSE-11</executionEnvironment>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+
+		<!--
+		  Local-dev profile — overrides the S3 P2 URL with the sibling local core build
+		  so Eclipse m2e and CLI `mvn verify` resolve against freshly-built artifacts.
+		  Activate per developer in ~/.m2/settings.xml; CI keeps using S3.
+		-->
+		<profile>
+			<id>cloudempiere-local</id>
+			<properties>
+				<cloudempiere.workspace>${user.home}/github/idempiere-cloudempiere</cloudempiere.workspace>
+				<idempiere.core.repository.url>file:///${cloudempiere.workspace}/iDempiereCLDE/core/org.idempiere.p2/target/repository</idempiere.core.repository.url>
+				<idempiere.rest.repository.url>file:///${cloudempiere.workspace}/.p2-cache/rest</idempiere.rest.repository.url>
+			</properties>
+		</profile>
+	</profiles>
+</project>

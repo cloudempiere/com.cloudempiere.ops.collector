@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.cloudempiere</groupId>
+  <artifactId>com.cloudempiere.ops.collector.test</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <!--
+    Standalone JUnit 5 unit tests for the pure-logic classes (no OSGi/iDempiere runtime).
+    NOT part of the Tycho reactor (JUnit 5 isn't in the iDempiere P2). Depends on the built
+    bundle jar, so install the parent pom + reactor first, then run (verified 8/8 green):
+      mvn -f com.cloudempiere.ops.collector.parent/pom.xml install -N
+      mvn install -Pcloudempiere-local -DskipTests
+      mvn -f com.cloudempiere.ops.collector.test/pom.xml test
+    OSGi integration tests (Pax Exam: broken bundle -> assert events) are a separate effort
+    per ADR-001 §4.15.
+  -->
+
+  <properties>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <junit.version>5.10.2</junit.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.cloudempiere</groupId>
+      <artifactId>com.cloudempiere.ops.collector</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>
