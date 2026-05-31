@@ -85,9 +85,12 @@ aws s3 sync s3://cloudempiere-p2/plugins/com.cloudempiere.ops.collector/staging/
 #    Logs:          aws logs tail /ecs/idempiere-clde-rest-stg --follow --region eu-west-1
 ```
 
-> The scaffold's `/ops/v1/*` REST surface (§4.7) is a TODO, so for now verification is via
-> OSGi console state + the stdout events the lifecycle sources emit. Once `OpsRestResource`
-> lands, also curl `/ops/v1/plugins` and `/ops/v1/readyz` from the task.
+> Beyond OSGi console state + the stdout events the lifecycle sources emit, the HTTP surface
+> (§4.7 *as-built*) is: unauthenticated probes on a WAB at `/ops/livez|readyz|startupz`, and the
+> M2M-authenticated data API at `/api/v1/ops/{startup,plugins,events,warmup}` (registered via the
+> rest fork's `ResourceExtension`). Probe check: `curl <task>/ops/readyz`; data check:
+> `curl -H "Authorization: Bearer <M2M-token>" <task>/api/v1/ops/plugins` (System-tenant M2M for
+> `plugins`/`startup`/`warmup`; see `docs/PROVISIONING-ops-monitor-m2m.md`).
 
 ### Pre-deploy guards (ADR §4.16)
 
@@ -105,24 +108,34 @@ while its components do not exist.
 
 ## Implementation status
 
-This is the **Phase 2 scaffold** (ADR §6). Buildable, ADR-compliant skeleton with the
-always-on lifecycle sources wired to the stdout floor.
+Past the Phase 2 scaffold (ADR §6): the full §4.4 component set, the `/api/v1/ops` data API
+(M2M-first, policy B), the WAB health probes, and the webui span-enrichment bundle are all
+implemented and build green. What remains is the OTLP emit sink, the log4j2 JSON layout,
+integration tests, and live runtime verification of the webui fragment (see below).
 
 **Implemented**
-- `api.OpsEvent` / `api.Severity` — exported event-envelope contract (§4.8, §5).
-- `internal.EventDispatcher` — `immediate` component; the stdout floor of §4.10 (sink #1).
-- `internal.ColdStartScanner` — one-shot bundle-state scan on `@Activate` (§4.4).
-- `internal.BundleLifecycleSource` — `BundleListener` + `FrameworkListener` (§4.4).
+- `api.OpsEvent` / `api.Severity` / `api.OpsStatusService` — exported contracts (§4.7, §4.8, §5).
+- `internal.EventDispatcher` — `immediate`; stdout floor (§4.10 sink #1) + **EventAdmin sink (#3)**
+  + bounded ring buffer + OTel `trace_id`/`span_id` correlation (§4.8).
+- `internal.ColdStartScanner`, `internal.BundleLifecycleSource` — bundle scan + listeners (§4.4).
+- `internal.DSComponentSource` — SCR poll, the "ACTIVE but broken" signal (§4.4).
+- `internal.SeverityClassifier`, `internal.TenantEnricher` (§5, §4.7 tenant scoping).
+- `internal.TwoPackEventSource` — `AD_Package_Imp` PK_Status events (§4.4).
+- `internal.BootPhaseTracker`, `internal.ShutdownHandler`, `internal.WarmupRunner` — boot phases,
+  SIGTERM drain, Strategy-B warmup (§4.4, §4.9).
+- `internal.OpsStatusProvider` — aggregates the above behind `OpsStatusService`.
+- `internal.OpsHealthServlet` — WAB probes `/ops/livez|readyz|startupz` (unauthenticated; §4.7 as-built).
+- `ops.rest`: `OpsResourceExtension` + `OpsV1Resource` — `/api/v1/ops/*`, M2M-first auth, policy B (§4.7).
+- `ops.trace.webui`: `WebuiSpanEnricher` + `WebuiEventEnricher` — webui OTel span enrichment (§11.1).
 
-**TODO** (tracked against ADR §4.4 component table / §6 phases)
-- DS-component state poll via `ServiceComponentRuntime` — `DSComponentSource` (the unique
-  "ACTIVE but broken" signal); needs the SCR service on the target platform.
-- `TwoPackEventSource`, `Log4jStructuredAppender`, `TenantEnricher`, `SeverityClassifier`,
-  `BootPhaseTracker`, `ShutdownHandler`, `WarmupRunner`.
-- `OpsRestResource` — `/ops/v1/*` via the BX REST extension point (§4.7).
-- OTel sink (#2) + EventAdmin sink (#3) in `EventDispatcher` (§4.10, §4.11) — Phase 3.
+**TODO** (tracked against ADR §4 / §6 phases)
+- Full OTLP **emit** sink (#2): `OpsEvent` → OTel Logs/Metrics — needs the OTel API as an OSGi
+  contract (orbinson wrapper in the target P2 + `system.packages.extra`); §4.10/§4.11.
 - log4j2 JSON layout fragment replacing the hand-built JSON floor (§4.13).
 - ECS task-identity metadata fetch (§4.17).
+- Pax Exam integration tests — broken-bundle → assert events (§4.15).
+- `ops.trace.webui` runtime verification on a live webui task — fragment attachment + event-thread
+  `Span.current()` (§11.1/§11.4); durable bake required (§11.2).
 
 > **Java target:** ADR §4.1 specifies `JavaSE-17`; this scaffold uses **`JavaSE-11`** to
 > match the iDempiere 10 runtime, the parent POM `executionEnvironment`, and every sibling

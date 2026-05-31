@@ -268,7 +268,30 @@ void activate(BundleContext ctx, Map<String, Object> config) { ... }
 
 ### 4.7 The `/ops/v1` REST contract
 
-Register the JAX-RS resource through BX REST's extension mechanism (consult `com.trekglobal.idempiere.rest.api` / BX REST extension points; same way `CacheResource` is registered). Do **not** stand up an independent HTTP server.
+> **As-built amendment (CLD-1912, 2026-05-31).** The implementation diverged from the design
+> below in three ways; this box is authoritative, the rest of §4.7 is the original rationale.
+>
+> - **REST framework = the trekglobal/CLDE fork, not BX.** The data resource is registered via
+>   `com.trekglobal.idempiere.rest.api`'s `ResourceExtension` OSGi service (`OpsResourceExtension`
+>   → `OpsV1Resource`), the same seam `CacheResourceExtension` uses — there is no BX `idempiere-rest`
+>   in this stack. (All "BX REST" references in §3.3/§4.4/§4.7 should read "trekglobal/CLDE rest fork".)
+> - **Paths.** Data endpoints mount under the REST base as **`/api/v1/ops/{startup,plugins,events,warmup}`**
+>   (not `/ops/v1/*`). The **probes moved off the JAX-RS resource entirely** to a Web Application
+>   Bundle servlet (`OpsHealthServlet`, `Web-ContextPath: ops`) at **`/ops/livez|readyz|startupz`** —
+>   *outside* `/api/v1`, so the global `CLDERequestFilter` never applies and the ALB/Docker prober
+>   (which cannot send `Authorization`) reaches them. Point the ALB target-group check at `/ops/readyz`.
+> - **Auth — the four-tier model below was superseded by an M2M-first model (policy B):**
+>   - **Probes** — *open* (WAB, outside the auth filter). No `OPS_COLLECTOR_PROBE_KEY`; bodies are
+>     liveness/readiness booleans only.
+>   - **Data API** — authenticated by the global filter, which already accepts **Cognito M2M
+>     (`client_credentials`)** tokens; an M2M app-client maps to a real `(AD_Client_ID, AD_Role_ID,
+>     AD_User_ID)` via `AD_Role_AppClientAccess`. **Policy B:** `startup`/`plugins`/`warmup` are
+>     system-level → require a **System-tenant** token (`AD_Client_ID 0`); `events` is **tenant-scoped**
+>     by `AD_Client_ID`. No SigV4 tier, no 15-min HMAC confirmation nonce; `warmup` is additionally
+>     gated by `OPS_COLLECTOR_WARMUP_HTTP_ENABLED`. The intended caller is a narrow `ops-monitor`
+>     role on an M2M client — see [`PROVISIONING-ops-monitor-m2m.md`](PROVISIONING-ops-monitor-m2m.md).
+
+Register the JAX-RS resource through the rest fork's `ResourceExtension` SPI (`com.trekglobal.idempiere.rest.api`; same way `CacheResourceExtension` is registered). Do **not** stand up an independent HTTP server for the *data* API (the probes are the one deliberate exception — a minimal WAB servlet, per the amendment above).
 
 Endpoints, with required response shapes:
 
@@ -912,3 +935,47 @@ the core would break resolution on rest/scheduler. → new sibling bundle
 - **`EventDispatcher` Phase 3 TODO** (`otel.emit(event)`): now concrete — emit `OpsEvent`s
   as OTel span events / logs so bundle-lifecycle + cold-start land in the same X-Ray
   backend as the traces, correlated by `trace_id`/`span_id` (already in the §4.8 schema).
+
+### 11.4 Function-status check (2026-05-31) — enrichment NOT active: symptom + diagnosis
+
+First post-deploy validation of `com.cloudempiere.ops.trace.webui` on staging webui
+(task rev 89). **The enricher is not running.** Symptom, evidence, cause, fix:
+
+**Symptom** — zero enrichment attributes on `/zkau` spans in X-Ray. The agent itself
+is healthy: spans carry stock auto-instrumentation (`http.route`, `db.operation`, JDBC
+children, `otel.resource.*`). None of `enduser.id`, `ad.{client,user,role,session}_id`,
+`zk.desktop_id`, `idempiere.{window,tab,table,record}_*` appear on any sampled span.
+
+**Evidence** — the `OtelSpan` static-init marker (`"OpenTelemetry API present — webui
+span enrichment active"` / `"…not present…"`) is **absent from 6h of webui logs**
+despite continuous `/zkau` traffic. `WebuiSpanEnricher` is an `ExecutionInit` listener
+that fires on *every* execution, so a missing marker ⇒ the class never loaded ⇒ the ZK
+listeners were never registered.
+
+**Immediate cause (deployment, not code)** — the bundle jar is **absent on the running
+task**: `find /opt/idempiere -iname '*ops.trace.webui*'` empty; not in `plugins/`,
+`dropins/`, nor `configuration/.../bundles.info`. The hot-deploy landed on a now-replaced
+task. This is exactly the §11.2 ephemeral-hot-deploy failure mode — **the code never
+executed; nothing here judges the Java.**
+
+**Fix (precondition for any code validation)** — bake the bundle into the image lineup
+(§11.2). Hot-deploy will keep vanishing on every rollover.
+
+**Two latent risks to verify the moment it runs (§11.1 — still UNVERIFIED):**
+1. **Fragment attachment.** `Fragment-Host: org.adempiere.ui.zk`; ZK reads
+   `metainfo/zk/config.xml` only off the host classpath. A fragment installed into an
+   already-resolved host won't attach without a host refresh. Baking it (resolved at
+   framework start) avoids this — confirm via the `OtelSpan` "active" boot line + `ss`
+   showing the fragment attached to its host.
+2. **Event-thread `Span.current()` no-op.** Identity attrs (`WebuiSpanEnricher`, servlet
+   thread) expected reliable; functional attrs (`WebuiEventEnricher`, ZK event thread)
+   may hit a no-op `Span.current()` if the request span isn't propagated across the
+   servlet→event-thread handoff. Acceptance test: an authenticated window-open click must
+   show **both** `enduser.id` **and** `idempiere.window_id` on the `/zkau` span. If only
+   `ad.*`/`enduser.id` land, the functional layer hit this caveat → needs explicit
+   context propagation.
+
+**Infra pairing done (clde-infra, same session)** — the collector `awsxray` exporter now
+lists all 12 enrichment keys in `indexed_attributes` (`modules/idempiere-clde-tier/locals.tf`),
+promoting them from metadata → queryable annotations. Staged to ship with the bundle bake;
+keep the list in lockstep with this bundle's attribute schema.
