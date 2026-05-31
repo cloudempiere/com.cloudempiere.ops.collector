@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Picked up by the HOST org.adempiere.ui.zk's wildcard `Service-Component: OSGI-INF/*.xml`
+  (Equinox SCR globs the host's entries incl. this fragment's), so it activates as part of the
+  host bundle. Hand-authored on purpose (tycho-ds does not generate descriptors in this reactor;
+  ADR-001 §4.5) — keep OSGI-INF/ in build.properties bin.includes or the component silently
+  never registers.
+-->
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0"
+      immediate="true"
+      activate="activate"
+      name="com.cloudempiere.ops.trace.webui.internal.WebuiEnricherRegistrar">
+   <implementation class="com.cloudempiere.ops.trace.webui.internal.WebuiEnricherRegistrar"/>
+</scr:component>

@@ -994,6 +994,41 @@ scan, so `WebuiSpanEnricher`'s listener is never registered. ⇒ the fragment mu
 console hot-deploy cannot activate it regardless of refresh. Risk 2 (event-thread `Span.current()`)
 stays **untestable** until the enricher is active, which now strictly requires the bake.
 
+**Post-bake finding (2026-05-31) — the registration mechanism itself was wrong; full breakdown + fix.**
+After the durable bake, the fragment attached at boot (`ss`: bundle `RESOLVED, Master=174`, in the host
+`Fragments=` list) and ZK no longer crashed — yet **423 `/zkau` traces carried zero enrichment, not even
+the servlet-thread identity attrs, and the `OtelSpan` marker never appeared.** So the enricher was
+*globally inactive*, not failing at the window layer. Isolation:
+- **OTel agent is fine** — the 423 `/zkau` traces *exist because of* it (no agent ⇒ no traces). Ruled out.
+- **`metainfo/zk/config.xml` is never read here** — iDempiere registers every ZK listener in the host's
+  `WEB-INF/zk.xml` (a fragment can't merge into it) and ships **no** `metainfo/zk/config.xml` anywhere;
+  webui's 11 OSGi SPIs are all UI-component factories — **there is no SPI for a ZK execution/desktop listener.**
+
+So the layered failure was: **(−1)** malformed `config.xml` schema → ZK-init abort → whole webui down (ECS
+"healthy", app broken, drain-first churn) — this masked everything; **(2)** even after the schema fix, ZK
+doesn't read a fragment's library config; **(3)** so the listeners never register. The first fix (schema,
+`<zk>`→`<config>`) only stopped the *crash*.
+
+**The fix (the registration mechanism).** The host `org.adempiere.ui.zk` declares a **wildcard
+`Service-Component: OSGI-INF/*.xml`**, and Equinox SCR resolves it against the host's entries
+*including fragment-contributed ones*. So the fragment ships a DS component
+(`internal.WebuiEnricherRegistrar`, `@Component immediate`, descriptor in `OSGI-INF/`) which the **host's
+SCR activates** — giving a fragment a way to run code. On activation it registers the listeners
+programmatically: `WebApps.getCurrent().getConfiguration().addListener(WebuiSpanEnricher.class /
+WebuiEventEnricher.class)`, with a bounded daemon poll for `WebApp` readiness (SCR may fire before ZK
+servlet init). `metainfo/zk/config.xml` is **deleted** (proven inert).
+
+**Self-observability (so this is never invisible again).** The registrar logs a greppable
+`WARNING [ops.trace.webui] enricher REGISTERED …` on success (`SEVERE` on timeout) — activation is now
+confirmable from CloudWatch **at boot, without `/zkau` traffic or an X-Ray query**. This applies the
+"ACTIVE is a lie" rule (§1/§4.5) to the enricher itself.
+
+**Mechanism rule for the future:** to contribute a ZK listener from a plugin into iDempiere webui, **add a
+DS component via the host's wildcard `Service-Component` and call `Configuration.addListener` programmatically**
+— *not* `WEB-INF/zk.xml` (host-only) and *not* a fragment `metainfo/zk/config.xml` (not discovered in this WAB).
+Post-bake acceptance: (1) the `REGISTERED` marker at boot, then (2) `enduser.id` **and** `idempiere.window_id`
+on a `/zkau` span — if only identity lands, that is risk 2 (event-thread `Span.current()`), a separate follow-up.
+
 ### 11.5 REQUIREMENT — request-scoped SQL fan-out + pool-wait telemetry (NEW, tier-agnostic)
 
 The 2026-05-30 traces named the latency mechanism *qualitatively* (one `/zkau` click =
