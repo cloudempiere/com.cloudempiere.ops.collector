@@ -1029,6 +1029,77 @@ DS component via the host's wildcard `Service-Component` and call `Configuration
 Post-bake acceptance: (1) the `REGISTERED` marker at boot, then (2) `enduser.id` **and** `idempiere.window_id`
 on a `/zkau` span — if only identity lands, that is risk 2 (event-thread `Span.current()`), a separate follow-up.
 
+**Classloader-bridge saga + lib-bundle resolution (2026-05-31, the actual fix).** With registration fixed,
+the `REGISTERED` marker appeared but **still 0 enrichment (192 then 423 `/zkau` traces), no `OtelSpan` marker.**
+Live-JVM inspection (pid 550) pinned it: the original `OtelSpan` **reflection shim**
+(`Class.forName("io.opentelemetry.api.trace.Span")`) **can never resolve** — the OTel Java agent ships only a
+**shaded** `io.opentelemetry.javaagent.shaded.*` copy in its isolated `AgentClassLoader` and expects the
+*application* to bring its own **unshaded** `io.opentelemetry.api`, which it then bridges. No JVM/classloader
+config can surface the agent's copy to a bundle.
+
+- **Infra dead-ends (clde-infra, PRs #198/#199), reverted #200.** Tried
+  `-Dorg.osgi.framework.bootdelegation=io.opentelemetry.*` + `-Dosgi.parentClassloader=app`
+  (and un-clobbered a duplicate `…bootdelegation=sun.security.ssl` that `idempiere-server.sh` appends
+  last-wins). Confirmed live on the cmdline — **still failed**, because the unshaded API is on *no*
+  app-reachable classloader. Worse, these flags are **actively harmful** with the real fix below:
+  `org.osgi.framework.bootdelegation` takes **precedence over `Import-Package`**, so a bootdelegated
+  `io.opentelemetry.*` would hijack `Span` loading to the (empty) app classloader → `ClassNotFoundException`.
+  **clde-infra must carry ZERO OTel classloader flags — bare `-javaagent` only.**
+- **The fix (option B).** New OSGi bundle **`com.cloudempiere.ops.lib.opentelemetry`** embeds the unshaded
+  `opentelemetry-api 1.62.0` + `opentelemetry-context` and `Export-Package`s `io.opentelemetry.api.*`.
+  `trace.webui` now `Import-Package: io.opentelemetry.api.trace;version="[1.40,2)"`; `OtelSpan` **drops
+  reflection** and compiles against the real `Span`, calling `Span.current().setAttribute(...)`. The lib
+  bundle is in the `ops.collector` feature → **baked**. **Version-aligned: API 1.62.0 ↔ agent 2.28.1**
+  (agent 2.N ↔ API 1.(N+34)).
+- **PROVEN (image `20260531-110529`, build #111).** Boot log:
+  `[ops.trace.webui] OpenTelemetry API linked (com.cloudempiere.ops.lib.opentelemetry) — … the agent bridges
+  Span.current() to live /zkau spans` (WARNING, greppable). The OSGi→agent bridge **works**; the
+  classloader problem that consumed the session is closed. **Infra side complete.**
+
+**Remaining (plugin-only, the §11.1 risk-2 / parent-guard item).** API linked + `setAttribute` called, but
+`/zkau` spans **still carry 0 attrs**. Two candidate causes, both in the plugin, about *which execution/thread
+the enricher runs on vs. where the server span is in scope*:
+1. **`if (parent != null) return;`** skips the interactive AU executions — the `OtelSpan` marker likely fired
+   on a `parent==null` page/desktop-init execution, while per-click `/zkau` AU executions arrive with a
+   non-null parent → enricher returns early.
+2. **`Span.current()` ≠ the `/zkau` server span** — if ZK processes the execution on its **event thread**
+   (not the servlet thread where the agent made the span current), `Span.current()` is the no-op span →
+   `setAttribute` goes nowhere.
+
+**Diagnostic (settles it in one line):** in `WebuiSpanEnricher.init`, log `parent`,
+`Thread.currentThread().getName()`, and `Span.current().getSpanContext().isValid()`. Never `parent==null` on a
+click → it's the guard (drop/relax it). Runs but `isValid()==false` → thread/scope → capture the span on the
+servlet thread and propagate via OTel `Context` to where attrs are set.
+
+**Mechanism rule (for any plugin using the OTel API under the agent):** provide your **own unshaded
+`io.opentelemetry.api` as an OSGi bundle** (`Import-Package`) — never reflection, never JVM bootdelegation
+(which conflicts with `Import-Package`). The agent bridges the app's unshaded API; it does not export it.
+
+**VERDICT (2026-05-31) — the enrichment failure is span-scope, proven by the in-init diagnostic.**
+With the real API bridged (the `OpenTelemetry API linked` marker fires) and the DIAG build deployed
+(`trace.webui v…1130`, image `20260531-113359`), a logged-in `/zkau` click logged exactly one line:
+
+```
+[ops.trace.webui] DIAG init: parentNull=true  thread=qtp48015678-384  spanValid=false  uid=1000579
+```
+
+Reading it:
+- `parentNull=true` → it **is** the outermost execution → the `if (parent != null) return;` guard is **innocent** (Cause 1 ruled out).
+- `thread=qtp…` → a **Jetty servlet (QTP) thread** — exactly where §11.1 assumed the span would be current (so it is **not** the ZK-event-thread story for the identity layer).
+- `spanValid=false` → **`Span.current()` is the no-op span at `ExecutionInit`, even on the servlet thread** → `setAttribute` writes to nothing → 0 attrs on every click (confirmed twice: 48 + 46 logged-in traces, all unenriched).
+
+So the OTel agent **records + exports** the `/zkau` server span (X-Ray has the traces, with nested JDBC on slow
+clicks) but does **not** make it *current* in the thread's OTel `Context` at the point app code (`ExecutionInit`)
+runs. The §11.1 premise — "the servlet thread reliably has the request span current" — is **false** in this WAB.
+
+**Fix direction (webui plugin, the last open item):** stop calling `Span.current()` at `ExecutionInit`. Find a
+request-lifecycle point where the agent's span *is* current (the JDBC nesting proves it becomes current deeper in
+the request), e.g. a servlet `Filter` at the agent-instrumented entry, or `ExecutionCleanup`/event-processing, and
+either enrich there or capture the span and propagate via OTel `Context`. If **no** app-reachable point has it
+current, the agent isn't exposing it to app code at all → enrich via the agent's stored request span /
+`GlobalOpenTelemetry`, not `Span.current()`. **Not the guard, not the event thread — the span-scope.** Everything
+else (registration, bridge, observability) is solved and shipped.
+
 ### 11.5 REQUIREMENT — request-scoped SQL fan-out + pool-wait telemetry (NEW, tier-agnostic)
 
 The 2026-05-30 traces named the latency mechanism *qualitatively* (one `/zkau` click =
