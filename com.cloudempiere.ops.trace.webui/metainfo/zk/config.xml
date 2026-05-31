@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ZK library config (ADR-001 §11.1). Discovered by ZK on the org.adempiere.ui.zk
-  host classpath (this bundle is a fragment of it). Registers the two trace
-  enrichers as ZK listeners, the same shape as core's WEB-INF/zk.xml entries
-  (e.g. org.adempiere.webui.session.SessionContextListener).
+  ZK LIBRARY config (ADR-001 §11.1), discovered by ZK on the org.adempiere.ui.zk host
+  classpath (this bundle is a fragment of it).
+
+  IMPORTANT: a classpath-discovered metainfo/zk/config.xml uses ZK's *library-config*
+  schema — root <config> with a REQUIRED <config-name> — NOT the <zk> root of
+  WEB-INF/zk.xml. Using <zk> here makes ZK throw
+  "IllegalSyntaxException: <config-name> is required" on every webui boot, which cascades
+  to "DeviceNotFoundException: ajax not found" and takes the whole webui down (CLD-1912).
+  Registers the two trace enrichers as ZK listeners (ExecutionInit + EventInterceptor).
 -->
-<zk>
+<config>
+   <config-name>com.cloudempiere.ops.trace.webui</config-name>
    <listener>
       <listener-class>com.cloudempiere.ops.trace.webui.WebuiSpanEnricher</listener-class>
    </listener>
    <listener>
       <listener-class>com.cloudempiere.ops.trace.webui.WebuiEventEnricher</listener-class>
    </listener>
-</zk>
+</config>
