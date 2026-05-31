@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="com.cloudempiere.ops.rest.feature"
+      label="CloudEmpiere Ops REST (/ops/v1)"
+      version="1.0.0.qualifier"
+      provider-name="CloudEmpiere">
+
+   <description url="https://github.com/cloudempiere/com.cloudempiere.ops.collector">
+      The /ops/v1 REST surface (ADR-001 §4.7), contributed to the iDempiere REST API via the
+      ResourceExtension SPI. Requires com.trekglobal.idempiere.rest.api — install ONLY on tiers
+      that run the REST API.
+   </description>
+
+   <copyright url="https://www.cloudempiere.com">
+      Copyright (C) 2026 CloudEmpiere Contributors
+   </copyright>
+
+   <license url="http://www.gnu.org/licenses/gpl-2.0.html">
+      GNU General Public License v2 or later.
+   </license>
+
+   <plugin
+         id="com.cloudempiere.ops.rest"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
+</feature>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ZK library config (ADR-001 §11.1). Discovered by ZK on the org.adempiere.ui.zk
+  host classpath (this bundle is a fragment of it). Registers the two trace
+  enrichers as ZK listeners, the same shape as core's WEB-INF/zk.xml entries
+  (e.g. org.adempiere.webui.session.SessionContextListener).
+-->
+<zk>
+   <listener>
+      <listener-class>com.cloudempiere.ops.trace.webui.WebuiSpanEnricher</listener-class>
+   </listener>
+   <listener>
+      <listener-class>com.cloudempiere.ops.trace.webui.WebuiEventEnricher</listener-class>
+   </listener>
+</zk>

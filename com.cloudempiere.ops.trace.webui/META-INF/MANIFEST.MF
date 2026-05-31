@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: CloudEmpiere Webui Trace Enrichment
+Bundle-SymbolicName: com.cloudempiere.ops.trace.webui;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-Vendor: CloudEmpiere
+Bundle-RequiredExecutionEnvironment: JavaSE-11
+Fragment-Host: org.adempiere.ui.zk;bundle-version="[10.0.0,15.0.0)"
+Automatic-Module-Name: com.cloudempiere.ops.trace.webui

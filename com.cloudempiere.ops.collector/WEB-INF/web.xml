@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0"
+         metadata-complete="true">
+    <display-name>CloudEmpiere Ops Collector Health Probes</display-name>
+
+    <!--
+      metadata-complete="true" (per com.cloudempiere.graphql / ADR-040): skip Jetty's
+      Servlet 3.0 annotation-discovery scan over the bundle classpath, which cost graphql
+      36-63 s of deployment gap on staging. The probe servlet is declared explicitly below,
+      so nothing is annotation-discovered. Doubly important here: this is the cold-start
+      observability plugin — it must not itself add seconds to cold start.
+    -->
+
+
+    <!--
+      Unauthenticated liveness/readiness probes (ADR-001 §4.7), served outside the JAX-RS
+      /api/v1 app so the REST auth filter does not apply. Web-ContextPath "ops" + these
+      mappings yield: GET /ops/livez, /ops/readyz, /ops/startupz.
+      The authenticated, data-bearing endpoints live on the /api/v1/ops/* JAX-RS resource.
+    -->
+    <servlet>
+        <servlet-name>OpsHealthServlet</servlet-name>
+        <servlet-class>com.cloudempiere.ops.collector.internal.OpsHealthServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>OpsHealthServlet</servlet-name>
+        <url-pattern>/livez</url-pattern>
+        <url-pattern>/readyz</url-pattern>
+        <url-pattern>/startupz</url-pattern>
+    </servlet-mapping>
+
+</web-app>
