@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: CloudEmpiere OpenTelemetry API (shared lib)
+Bundle-SymbolicName: com.cloudempiere.ops.lib.opentelemetry;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-Vendor: CloudEmpiere
+Bundle-RequiredExecutionEnvironment: JavaSE-11
+Automatic-Module-Name: com.cloudempiere.ops.lib.opentelemetry
+Bundle-ClassPath: .,
+ lib/opentelemetry-api-1.62.0.jar,
+ lib/opentelemetry-context-1.62.0.jar
+Export-Package: io.opentelemetry.api;version="1.62.0",
+ io.opentelemetry.api.baggage;version="1.62.0",
+ io.opentelemetry.api.common;version="1.62.0",
+ io.opentelemetry.api.metrics;version="1.62.0",
+ io.opentelemetry.api.trace;version="1.62.0",
+ io.opentelemetry.context;version="1.62.0",
+ io.opentelemetry.context.propagation;version="1.62.0"

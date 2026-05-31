@@ -12,7 +12,8 @@
 		<relativePath>com.cloudempiere.ops.collector.parent/pom.xml</relativePath>
 	</parent>
 	<modules>
-		<!-- Build order: bundles -> features -> p2 (P2 must be LAST). -->
+		<!-- Build order: lib -> bundles -> features -> p2 (P2 must be LAST). -->
+		<module>com.cloudempiere.ops.lib.opentelemetry</module>
 		<module>com.cloudempiere.ops.collector</module>
 		<module>com.cloudempiere.ops.trace.webui</module>
 		<module>com.cloudempiere.ops.rest</module>

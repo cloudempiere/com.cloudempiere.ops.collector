@@ -52,7 +52,6 @@ public class WebuiEventEnricher implements EventInterceptor {
 	}
 
 	private void enrichCurrentSpan() {
-		if (!OtelSpan.isAvailable()) return;
 		try {
 			IDesktop appDesktop = SessionManager.getAppDesktop();
 			if (appDesktop == null) return;

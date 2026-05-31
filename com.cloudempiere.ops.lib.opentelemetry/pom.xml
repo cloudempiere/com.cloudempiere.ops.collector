@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <artifactId>com.cloudempiere.ops.lib.opentelemetry</artifactId>
+  <packaging>eclipse-plugin</packaging>
+  <parent>
+    <groupId>com.cloudempiere</groupId>
+    <artifactId>com.cloudempiere.ops.collector.parent</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <relativePath>../com.cloudempiere.ops.collector.parent/pom.xml</relativePath>
+  </parent>
+
+  <!--
+    Shared lib bundle: embeds the UNSHADED opentelemetry-api (+context) so our bundles can
+    Import-Package io.opentelemetry.api.* and call Span.current() directly. The OTel Java agent
+    (2.28.1, api/sdk 1.62.0 on staging) bridges the app's unshaded API to live spans — the
+    reflection shim could never work because the agent only carries a *shaded* copy
+    (io.opentelemetry.javaagent.shaded.*). Pin to the agent's 1.62.0 for a clean bridge.
+  -->
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <otel.api.version>1.62.0</otel.api.version>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.6.1</version>
+        <executions>
+          <execution>
+            <id>copy-opentelemetry-api</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${basedir}/lib</outputDirectory>
+              <overWriteReleases>true</overWriteReleases>
+              <stripVersion>false</stripVersion>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.opentelemetry</groupId>
+                  <artifactId>opentelemetry-api</artifactId>
+                  <version>${otel.api.version}</version>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.opentelemetry</groupId>
+                  <artifactId>opentelemetry-context</artifactId>
+                  <version>${otel.api.version}</version>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

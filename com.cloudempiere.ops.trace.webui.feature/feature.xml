@@ -27,4 +27,13 @@
          fragment="true"
          unpack="false"/>
 
+   <!-- Unshaded opentelemetry-api so OtelSpan can stamp attrs on the /zkau span (§11.1).
+        The OTel agent bridges it; required for the enrichment to land. -->
+   <plugin
+         id="com.cloudempiere.ops.lib.opentelemetry"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
 </feature>
