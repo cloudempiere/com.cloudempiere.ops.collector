@@ -979,3 +979,98 @@ executed; nothing here judges the Java.**
 lists all 12 enrichment keys in `indexed_attributes` (`modules/idempiere-clde-tier/locals.tf`),
 promoting them from metadata → queryable annotations. Staged to ship with the bundle bake;
 keep the list in lockstep with this bundle's attribute schema.
+
+**Console-install experiment (2026-05-31) — refines risk 1; bake confirmed mandatory.** Installed
+the fragment into the running webui task (rev `84bceefc`) via the Equinox console and observed:
+- fresh `install` → bundle 468 `INSTALLED`, **not** in host `org.adempiere.ui.zk` (id 171) `Fragments=` list;
+- explicit `refresh 171` → **468 → `RESOLVED, Master=171`** — the fragment **does attach** post-boot via an
+  explicit host refresh, so "won't attach without a refresh" is solvable; **attachment is not the blocker**;
+- **but no `OtelSpan` "active" marker appeared** — the enricher still did not register.
+
+Root cause, now pinned: ZK scans `metainfo/zk/config.xml` **only at webapp init (boot)**. An OSGi host
+`refresh` re-resolves the bundle and attaches the fragment, but does **not** re-run ZK's `config.xml`
+scan, so `WebuiSpanEnricher`'s listener is never registered. ⇒ the fragment must be present at
+**framework start** (durable bake into the webui lineup, §11.2) so it attaches *before* ZK init —
+console hot-deploy cannot activate it regardless of refresh. Risk 2 (event-thread `Span.current()`)
+stays **untestable** until the enricher is active, which now strictly requires the bake.
+
+### 11.5 REQUIREMENT — request-scoped SQL fan-out + pool-wait telemetry (NEW, tier-agnostic)
+
+The 2026-05-30 traces named the latency mechanism *qualitatively* (one `/zkau` click =
+3,374 JDBC spans; `SUM(...)` ×30; `SHOW TRANSACTION ISOLATION LEVEL` ×1812; per-row
+stored-function N+1). Make it a **queryable per-request number** so any slow click/REST
+call self-describes its DB fan-out — applies to **webui `/zkau` AND rest `/api/v1/*`,
+`/graphql`** (the agent emits JDBC child spans on both tiers).
+
+**Mechanism — custom `SpanProcessor`, no iDempiere code change.** The collector bundle
+registers an OTel `SpanProcessor` (programmatic, via the agent-exposed `GlobalOpenTelemetry`
+/ extension SPI). It watches JDBC client spans and aggregates onto the **local-root server
+span**:
+- `onStart(jdbcSpan)`: resolve `LocalRootSpan.current()` (agent API) → that request's root.
+- accumulate per-root in a `Map<SpanContext, Counters>`: statement count, summed
+  `db.statement` duration, distinct sanitized statements, most-frequent statement.
+- `onEnd(rootSpan)`: stamp aggregates, evict the map entry.
+
+**Attribute schema (on the server span):**
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `idempiere.sql.count` | long | JDBC statements executed in the request |
+| `idempiere.sql.db_ms` | long | summed JDBC span duration (ms) |
+| `idempiere.sql.distinct` | long | distinct sanitized statements (the N+1 tell: count≫distinct) |
+| `idempiere.sql.top_statement` | string | most-frequent sanitized SQL (already param-stripped by the agent sanitizer) |
+| `idempiere.db.pool.acquire_ms` | long | connection-pool acquire wait for the request (see below) |
+
+**Pool wait — two paths by pool impl:**
+- **HikariCP** (if active): enable the agent's HikariCP metrics
+  (`otel.instrumentation.hikaricp.enabled=true`) → `db.client.connections.{usage,pending,
+  wait}` for free, no code. Confirm the runtime pool first.
+- **Legacy Adempiere pool**: the agent doesn't instrument it. Manual span around the
+  pool `getConnection()` boundary (`CConnection`/`DB.getConnectionRW`), duration →
+  `idempiere.db.pool.acquire_ms` on the local-root. Conditional — only if the legacy pool
+  is in use.
+
+**Caveats:** the `SpanProcessor` sees spans from ALL threads/requests — **key strictly by
+`LocalRootSpan` context**, never a thread-local, or counts cross-contaminate. The ZK
+servlet→event-thread handoff (§11.1) means JDBC may run on a different thread than the
+server span started on; `LocalRootSpan` follows context propagation, so it's correct as
+long as the agent propagated context across the handoff (verify — same risk surface as the
+event-thread caveat). Bound the per-root map (evict on root end + a TTL sweep) so a dropped
+`onEnd` can't leak memory. No `db.statement` *values* ever copied (sanitizer already ON).
+
+### 11.6 REQUIREMENT — DS/plugin health + warmup as OTel signals (the §11.3 `otel.emit` TODO, made concrete)
+
+Route the collector's existing §4.8 events into the same X-Ray/CloudWatch backend so a
+deploy's component health is one correlated picture. Two signal shapes:
+
+**(a) Warmup as a trace** — `POST /ops/v1/warmup` (§4.9 Strategy B) wraps the whole
+validation in a span `idempiere.warmup`, **one child span per forced component** with:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `idempiere.warmup.result` | string | `ok` / `failed_activation` / `factory_shadowed` / `timeout` |
+| `idempiere.component` | string | DS component name |
+| `idempiere.bundle` | string | owning bundle symbolic name |
+
+The deploy gate becomes a trace: open `idempiere.warmup`, see exactly which component failed
+and how long each `@Activate` took. Fits the **existing traces pipeline** — no new infra
+beyond indexing the attrs.
+
+**(b) Discrete failures as span events / logs** — `plugin.component.failed_activation`,
+`plugin.component.unsatisfied`, `plugin.resolution.failed`, `plugin.descriptor.missing`
+emitted as OTel `LogRecord` (or span events on the boot span) carrying the §4.8 envelope
+fields (`event_type`, `severity`, `bundle`, `component`, `missing_references`) + the
+`trace_id`/`span_id` already mandated in §4.8. Correlated jump: event → trace → logs.
+
+**(c) Continuous health gauges (deferred — needs a metrics pipeline)** —
+`idempiere.ds.components_unhealthy`, `idempiere.bundles.active`, counters for the failure
+event types. These are **metrics, not traces**, so they need a collector **metrics pipeline
+→ `awsemf` exporter → CloudWatch** (the sidecar config has only a traces pipeline today) +
+`logs:PutLogEvents` IAM on the task role. **Infra follow-up, not in the first cut** — ship
+(a)+(b) on the existing traces pipeline first; add the metrics pipeline when the gauge set
+is settled.
+
+**Infra pairing (clde-infra, this session):** `idempiere.sql.{count,db_ms,distinct,
+top_statement}`, `idempiere.db.pool.acquire_ms`, `idempiere.warmup.result`,
+`idempiere.component`, `idempiere.bundle` added to the `awsxray` `indexed_attributes` list
+so they filter as annotations. The metrics pipeline (c) is tracked as the named follow-up.
