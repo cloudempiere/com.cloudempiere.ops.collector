@@ -35,7 +35,9 @@ public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 	@Override
 	public void init(Execution exec, Execution parent) {
 		// Only the outermost execution carries the request span; skip included/forwarded ones.
-		if (parent != null || !OtelSpan.isAvailable()) return;
+		// (OTel API is now a real compile dependency — no availability gate; setAttribute no-ops
+		// harmlessly when the agent is off.)
+		if (parent != null) return;
 		try {
 			Properties ctx = Env.getCtx();
 			OtelSpan.setLong("ad.client_id", Env.getAD_Client_ID(ctx));

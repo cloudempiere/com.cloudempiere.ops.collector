@@ -20,11 +20,7 @@ Import-Package: org.osgi.framework;version="[1.10,2)",
  org.osgi.service.event;version="[1.4,2)",
  org.osgi.service.log;version="[1.4,2)";resolution:=optional,
  org.compiere.model,
- io.opentelemetry.api;version="[1.40,2)";resolution:=optional,
- io.opentelemetry.api.metrics;version="[1.40,2)";resolution:=optional,
- io.opentelemetry.api.trace;version="[1.40,2)";resolution:=optional,
- io.opentelemetry.context;version="[1.40,2)";resolution:=optional,
- io.opentelemetry.semconv;version="[1.25,2)";resolution:=optional,
+ io.opentelemetry.api.trace;version="[1.40,2)",
  org.apache.logging.log4j;version="[2.20,3)";resolution:=optional
 Web-ContextPath: ops
 Jetty-WarPatchFragmentFolderPath: /

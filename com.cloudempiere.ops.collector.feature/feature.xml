@@ -29,4 +29,13 @@
          version="0.0.0"
          unpack="false"/>
 
+   <!-- Unshaded opentelemetry-api so OtelContext can stamp trace_id/span_id (§4.8). Ships on all
+        tiers; the OTel agent bridges it (the reflection shim could not reach the agent's shaded copy). -->
+   <plugin
+         id="com.cloudempiere.ops.lib.opentelemetry"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
 </feature>

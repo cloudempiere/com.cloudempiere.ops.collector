@@ -1,0 +1,2 @@
+# opentelemetry-api/context jars are fetched into lib/ at build time by maven-dependency-plugin
+/lib/
