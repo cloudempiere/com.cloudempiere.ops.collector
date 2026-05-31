@@ -44,9 +44,13 @@ public final class OtelSpan {
 			setString = span.getMethod("setAttribute", String.class, String.class);
 			setLong = span.getMethod("setAttribute", String.class, long.class);
 			ok = true;
-			log.info("OpenTelemetry API present — webui span enrichment active");
+			// WARNING (not INFO) on purpose: this is the §11.4 bridge-validation checkpoint — INFO is
+			// filtered from CloudWatch AND the in-container log here, so the verdict must be WARNING to
+			// be greppable (matches the WebuiEnricherRegistrar marker). Confirms whether the OTel API
+			// bridge (-Dosgi.parentClassloader=app + bootdelegation) actually reached this bundle.
+			log.warning("[ops.trace.webui] OpenTelemetry API PRESENT — webui span enrichment ACTIVE (isAvailable=true)");
 		} catch (Throwable t) {
-			log.info("OpenTelemetry API not present (agent off) — webui span enrichment is a no-op");
+			log.warning("[ops.trace.webui] OpenTelemetry API NOT present (agent off / bridge ineffective) — enrichment is a no-op (isAvailable=false)");
 		}
 		M_CURRENT = current;
 		M_SET_STRING = setString;
