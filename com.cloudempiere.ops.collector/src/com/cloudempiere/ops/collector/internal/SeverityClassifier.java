@@ -35,7 +35,6 @@ public class SeverityClassifier {
 		switch (eventType) {
 			// framework / container scope
 			case "plugin.lifecycle.failed":
-			case "plugin.component.unsatisfied":
 			case "plugin.component.failed_activation":
 			case "plugin.component.failed":
 			case "plugin.resolution.failed":
@@ -50,6 +49,16 @@ public class SeverityClassifier {
 			case "plugin.2pack.failed":
 			case "ops.runtime.component_degraded":
 				return Severity.ALERT;
+
+			// NON-DEFENSIVE (temporary): a DS component reporting UNSATISFIED_REFERENCE is too
+			// often benign to page on — it fires transiently during boot, and permanently for
+			// plugins that are simply not relevant on this tier (e.g. orderstatus/wcs/dms model
+			// factories on the rest tier). Blanket-PANIC here caused an alert flood, so we record
+			// it at AUDIT for the dashboard instead of paging. TODO (ADR-001 §5): re-escalate with
+			// EVIDENCE only — boot phase COMPLETE + a grace period + a tier-relevance allowlist —
+			// rather than the defensive "any unsatisfied ⇒ PANIC" rule.
+			case "plugin.component.unsatisfied":
+				return Severity.AUDIT;
 
 			default:
 				// notable-but-expected: recoveries, deploys, boot phases, task/cluster lifecycle…
