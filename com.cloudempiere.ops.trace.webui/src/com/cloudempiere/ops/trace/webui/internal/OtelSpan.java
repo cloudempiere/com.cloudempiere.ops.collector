@@ -55,4 +55,18 @@ public final class OtelSpan {
 			// never break the request on a telemetry failure
 		}
 	}
+
+	/**
+	 * Diagnostic (CLD-1912 §11.4): is {@link Span#current()} a <b>valid (recording) server span</b>
+	 * at the call site? If false on the servlet thread, the agent isn't bridging the span into this
+	 * thread/scope, so {@code setAttribute} silently goes nowhere — distinguishes the guard cause
+	 * from the thread/scope cause.
+	 */
+	public static boolean currentSpanValid() {
+		try {
+			return Span.current().getSpanContext().isValid();
+		} catch (Throwable t) {
+			return false;
+		}
+	}
 }
