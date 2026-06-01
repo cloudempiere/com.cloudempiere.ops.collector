@@ -20,6 +20,34 @@ fragment enriches webui OTel spans.
 means **bundle ACTIVE *and* every DS component SATISFIED/ACTIVE** — never bundle state alone. Much of
 the code exists to detect exactly this.
 
+## CI/CD & delivery — how a change reaches staging (verified 2026-06-01, CLD-1912)
+
+**The real plugin CI is AWS CodeBuild `cloudempiere-plugin-build`** — NOT the Jenkins multibranch
+job. Getting this wrong cost a full session. The flow:
+
+1. **Build (AWS CodeBuild `cloudempiere-plugin-build`)** — builds the plugin repo's **`master` HEAD**,
+   publishes a versioned P2 to `s3://cloudempiere-p2/plugins/<plugin>/staging/<ts>/` (+ `latest/`),
+   writes `build.json` (records `git_sha`, `built_by`), and **bumps the BoDM ledger**
+   `s3://cloudempiere-p2/versions/staging.json` → `{ "<plugin>": { "ts": "<ts>", "install_iu": … } }`.
+2. **Bake (`idempiere-clde-image`)** — installs each plugin by resolving the **BoDM `ts`** →
+   `staging/<ts>/`. **It does NOT read `staging/latest/`.** (ADR-026 "Phase 1 BOdM".)
+3. **Deploy (`idempiere-clde-deploy`)** — rolls the baked image onto a tier.
+
+**Hard-won gotchas (do not relearn these):**
+- ⚠️ **The Jenkins job `cloudempiere/plugins/com.cloudempiere.ops.collector/master` is a RED HERRING.**
+  It builds from a shared tree `/var/jenkins_home/ce-shared-src` on branch **`develop`**, NOT the
+  plugin's `master`, so its artifacts can lack your merged change. It does **not** feed the BoDM.
+  Triggering it does nothing for delivery.
+- ⚠️ **Seeding `staging/latest/` by hand does NOT work** — the bake resolves the BoDM `ts` dir, and a
+  CodeBuild publish overwrites `latest/` anyway. To force a specific build: publish to a versioned
+  `staging/<ts>/` **and** bump `versions/staging.json` `ts`.
+- ⚠️ **Bake timing matters.** A bake reflects the BoDM `ts` *at bake time*. If you merge → CodeBuild
+  publishes (BoDM bumps) → you must bake **after** the bump. A bake started before the bump ships the
+  old build (this is exactly how a stale `0913` shipped while `master` was already correct).
+- ✅ **To ship a merged change:** let CodeBuild publish (confirm `versions/staging.json` `ts` advanced
+  and `staging/<ts>/build.json` `git_sha` == your master HEAD), **then** bake, **then** deploy. No
+  local seed/override needed when CodeBuild + BoDM are doing their job.
+
 ## Build & test
 
 Tycho 2.7.5, **JavaSE-11**, Maven 3.9+. Build resolves the target platform from two P2 repos: the
