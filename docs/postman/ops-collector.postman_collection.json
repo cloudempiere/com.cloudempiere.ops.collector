@@ -2,7 +2,7 @@
   "info": {
     "name": "Cloudempiere — Ops Collector",
     "_postman_id": "ce-ops-collector",
-    "description": "Endpoints for com.cloudempiere.ops.collector (ADR-001).\n\n**Two surfaces:**\n- **Probes** (`/ops/*`) — unauthenticated WAB servlet; point ALB / Docker health checks at `/ops/readyz`.\n- **Data API** (`/api/v1/ops/*`) — authenticated via Cognito M2M `client_credentials` Bearer token; system-level endpoints require a System-tenant token (AD_Client_ID 0).\n\n**Local dev quick-start**\n1. Set `baseUrl` to your iDempiere host (default `http://localhost:8080`).\n2. Fill `clientId` / `clientSecret` / `cognitoTokenUrl` for your environment.\n3. Run **Auth → Get M2M Token** — the `accessToken` variable is set automatically.\n4. All Data API requests inherit the Bearer token from the folder auth.\n\nSee `docs/PROVISIONING-ops-monitor-m2m.md` for M2M provisioning steps.",
+    "description": "Endpoints for com.cloudempiere.ops.collector (ADR-001).\n\n**Two surfaces:**\n- **Probes** (`/ops/*`) — unauthenticated WAB servlet; point ALB / Docker health checks at `/ops/readyz`.\n- **Data API** (`/api/v1/ops/*`) — two auth options:\n  - **M2M Bearer token** (Cognito `client_credentials`) — full auth, use for production monitoring.\n  - **Pin auth** (`?key=`) — reuses the upstream `REST_HEALTH_MONITORING_KEY` SysConfig value; use for deploy pipelines and simple scripts that cannot run an OAuth flow. Read-only endpoints only (`startup`, `plugins`, `events`). Set `healthMonitoringKey` variable.\n\n**Local dev quick-start (M2M)**\n1. Set `baseUrl` to your iDempiere host (default `http://localhost:8080`).\n2. Fill `clientId` / `clientSecret` / `cognitoTokenUrl` for your environment.\n3. Run **Auth → Get M2M Token** — the `accessToken` variable is set automatically.\n\n**Local dev quick-start (pin)**\n1. Set `REST_HEALTH_MONITORING_KEY` in `AD_SysConfig` on the iDempiere instance.\n2. Set `healthMonitoringKey` collection variable to the same value.\n3. Use requests in **Data API — Pin Auth** folder directly — no token step needed.\n\nSee `docs/PROVISIONING-ops-monitor-m2m.md` for M2M provisioning steps.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -35,6 +35,12 @@
       "key": "accessToken",
       "value": "",
       "description": "Auto-populated by 'Auth → Get M2M Token'. Do not edit manually.",
+      "type": "string"
+    },
+    {
+      "key": "healthMonitoringKey",
+      "value": "",
+      "description": "Value of AD_SysConfig REST_HEALTH_MONITORING_KEY on the target instance. Used by the Pin Auth folder as ?key=. Store in Postman Vault — never commit.",
       "type": "string"
     }
   ],
@@ -316,6 +322,105 @@
               "code": 200,
               "header": [{ "key": "Content-Type", "value": "application/json" }],
               "body": "{\n  \"events\": [\n    {\n      \"schema_version\": \"1.0\",\n      \"event_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n      \"event_type\": \"plugin.component.failed_activation\",\n      \"severity\": \"PANIC\",\n      \"timestamp\": \"2026-05-31T10:01:03.123Z\",\n      \"source\": {\n        \"service\": \"idempiere\",\n        \"ecs_task_id\": \"abc123def456\",\n        \"container_id\": \"abc123def456-collector\",\n        \"iDempiere_version\": \"13.0.1\",\n        \"collector_version\": \"1.0.0\",\n        \"deployment_environment\": \"local\"\n      },\n      \"aggregation_hint\": \"per_task\",\n      \"tenant\": { \"ad_client_id\": 1000026, \"ad_client_name\": \"Acme\" },\n      \"subject\": {\n        \"kind\": \"ds_component\",\n        \"bundle\": \"com.cloudempiere.tms\",\n        \"bundle_version\": \"2.4.7\",\n        \"component\": \"com.cloudempiere.tms.event.handler\"\n      },\n      \"details\": {\n        \"state\": \"FAILED_ACTIVATION\",\n        \"missing_references\": [\"IEventManager\"],\n        \"failure_message\": \"Component failed to activate\",\n        \"stack_trace\": \"…\"\n      },\n      \"trace_id\": \"0123456789abcdef0123456789abcdef\",\n      \"span_id\": \"0123456789abcdef\",\n      \"dedupe_hash\": \"sha256:abc…\"\n    }\n  ],\n  \"total\": 1,\n  \"buffer_size\": 5000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data API — Pin Auth (REST_HEALTH_MONITORING_KEY)",
+      "description": "Read-only data endpoints authenticated via the upstream `REST_HEALTH_MONITORING_KEY` SysConfig value passed as `?key=`.\n\nNo OAuth flow needed — set `healthMonitoringKey` collection variable to the value configured in `AD_SysConfig` on the target instance.\n\nPin auth grants System-tenant scope (same as the key grants on `/api/v1/health`). `warmup` is intentionally excluded — it requires a Bearer token.",
+      "item": [
+        {
+          "name": "startup — pin auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/startup?key={{healthMonitoringKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "startup"],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{healthMonitoringKey}}",
+                  "description": "REST_HEALTH_MONITORING_KEY SysConfig value."
+                }
+              ]
+            },
+            "description": "Full boot-phase breakdown authenticated via the health monitoring key.\nUseful in deploy pipelines to verify boot state without provisioning a Cognito M2M client.\n\nReturns 401 if `REST_HEALTH_MONITORING_KEY` is not configured on the instance or the key does not match."
+          },
+          "response": [
+            {
+              "name": "401 — key not configured or mismatch",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"status\":\"unauthenticated\"}"
+            }
+          ]
+        },
+        {
+          "name": "plugins — pin auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/plugins?key={{healthMonitoringKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "plugins"],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{healthMonitoringKey}}",
+                  "description": "REST_HEALTH_MONITORING_KEY SysConfig value."
+                }
+              ]
+            },
+            "description": "OSGi bundle + DS component snapshot authenticated via the health monitoring key."
+          },
+          "response": [
+            {
+              "name": "401 — key not configured or mismatch",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"status\":\"unauthenticated\"}"
+            }
+          ]
+        },
+        {
+          "name": "events — pin auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/events?key={{healthMonitoringKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "events"],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{healthMonitoringKey}}",
+                  "description": "REST_HEALTH_MONITORING_KEY SysConfig value."
+                },
+                {
+                  "key": "max",
+                  "value": "100",
+                  "description": "Maximum number of events to return.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Recent event log authenticated via the health monitoring key.\nPin auth grants System-tenant scope — returns events across all tenants."
+          },
+          "response": [
+            {
+              "name": "401 — key not configured or mismatch",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"status\":\"unauthenticated\"}"
             }
           ]
         }
