@@ -1,0 +1,378 @@
+{
+  "info": {
+    "name": "Cloudempiere — Ops Collector",
+    "_postman_id": "ce-ops-collector",
+    "description": "Endpoints for com.cloudempiere.ops.collector (ADR-001).\n\n**Two surfaces:**\n- **Probes** (`/ops/*`) — unauthenticated WAB servlet; point ALB / Docker health checks at `/ops/readyz`.\n- **Data API** (`/api/v1/ops/*`) — authenticated via Cognito M2M `client_credentials` Bearer token; system-level endpoints require a System-tenant token (AD_Client_ID 0).\n\n**Local dev quick-start**\n1. Set `baseUrl` to your iDempiere host (default `http://localhost:8080`).\n2. Fill `clientId` / `clientSecret` / `cognitoTokenUrl` for your environment.\n3. Run **Auth → Get M2M Token** — the `accessToken` variable is set automatically.\n4. All Data API requests inherit the Bearer token from the folder auth.\n\nSee `docs/PROVISIONING-ops-monitor-m2m.md` for M2M provisioning steps.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "description": "iDempiere base URL (no trailing slash). Change per environment.",
+      "type": "string"
+    },
+    {
+      "key": "cognitoTokenUrl",
+      "value": "https://YOUR_POOL.auth.eu-central-1.amazoncognito.com/oauth2/token",
+      "description": "Cognito token endpoint for the environment's user pool.",
+      "type": "string"
+    },
+    {
+      "key": "clientId",
+      "value": "",
+      "description": "Cognito app-client ID for the ops-monitor M2M client (Step 3 of provisioning doc).",
+      "type": "string"
+    },
+    {
+      "key": "clientSecret",
+      "value": "",
+      "description": "Cognito app-client secret. Store in Postman Vault or an environment — never commit.",
+      "type": "string",
+      "disabled": false
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "Auto-populated by 'Auth → Get M2M Token'. Do not edit manually.",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Probes (unauthenticated)",
+      "description": "Unauthenticated WAB servlet at Web-ContextPath: ops.\nResponse bodies are minimal (up/down only — no bundle names or tenant data).\nPoint ALB target-group health checks at `/ops/readyz`.",
+      "item": [
+        {
+          "name": "readyz — full readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ops/readyz",
+              "host": ["{{baseUrl}}"],
+              "path": ["ops", "readyz"]
+            },
+            "description": "Checks: collector internal state OK, no DS components FAILED_ACTIVATION, DB reachable, no SIGTERM in progress.\n\n- `200 {\"status\":\"ready\"}` — healthy; ALB sends traffic.\n- `503 {\"status\":\"unready\",\"reasons\":[…]}` — not ready; ALB removes from pool.\n\nWire ALB target-group health check here (`startPeriod >= 180s`)."
+          },
+          "response": [
+            {
+              "name": "200 Ready",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ready\"\n}"
+            },
+            {
+              "name": "503 Unready",
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"unready\",\n  \"reasons\": [\n    \"DS component com.cloudempiere.tms.event.handler FAILED_ACTIVATION\"\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "livez — process liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ops/livez",
+              "host": ["{{baseUrl}}"],
+              "path": ["ops", "livez"]
+            },
+            "description": "Cheap — no dependency checks, no DB calls.\nReturns `200 {\"status\":\"alive\"}` if the collector bundle is running.\nWire to `docker HEALTHCHECK`."
+          },
+          "response": [
+            {
+              "name": "200 Alive",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"alive\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "startupz — boot complete",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ops/startupz",
+              "host": ["{{baseUrl}}"],
+              "path": ["ops", "startupz"]
+            },
+            "description": "Returns `200` once boot Phase 4+ reached (bundles ACTIVE, DS satisfied).\nReturns `503` while booting.\nUse as a Kubernetes `startupProbe`; ECS uses a long `startPeriod` on `/readyz` instead."
+          },
+          "response": [
+            {
+              "name": "200 Boot complete",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"started\"\n}"
+            },
+            {
+              "name": "503 Still starting",
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"starting\",\n  \"phase\": \"ds_activation\",\n  \"elapsed_seconds\": 47\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth — Cognito M2M Token",
+      "description": "Obtain a client_credentials token from Cognito.\nRun this before any Data API request — the test script saves `access_token` to the `accessToken` collection variable.",
+      "item": [
+        {
+          "name": "Get M2M Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', res.access_token);",
+                  "    console.log('accessToken set; expires_in:', res.expires_in, 's');",
+                  "} else {",
+                  "    console.error('No access_token in response:', JSON.stringify(res));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials", "type": "text" },
+                { "key": "client_id", "value": "{{clientId}}", "type": "text" },
+                { "key": "client_secret", "value": "{{clientSecret}}", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{cognitoTokenUrl}}",
+              "host": ["{{cognitoTokenUrl}}"]
+            },
+            "description": "POST client_credentials to the Cognito token endpoint.\nThe Test script auto-sets `accessToken` on success.\n\nRequires `clientId` and `clientSecret` to be set in the collection variables (or a Postman environment). The resulting token must map to the `ops-monitor` System-tenant role via `AD_Role_AppClientAccess` for system-level endpoints to return 200 (see PROVISIONING-ops-monitor-m2m.md §3)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Data API — Read (system-tenant token required)",
+      "description": "Endpoints that require a **System-tenant** M2M token (AD_Client_ID 0).\nAuth: Bearer {{accessToken}} — inherited from folder auth below.\n\nPolicy B: startup / plugins / warmup are system-level. A tenant-scoped token returns 403.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "plugins — bundle + DS snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/plugins",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "plugins"],
+              "query": [
+                {
+                  "key": "bundle",
+                  "value": "",
+                  "description": "Filter by bundle symbolic name (exact or prefix). Leave empty for all.",
+                  "disabled": true
+                },
+                {
+                  "key": "state",
+                  "value": "ACTIVE",
+                  "description": "Filter by OSGi bundle state: ACTIVE | INSTALLED | RESOLVED | STARTING | STOPPING | UNINSTALLED. Leave empty for all.",
+                  "disabled": true
+                },
+                {
+                  "key": "cldeOnly",
+                  "value": "true",
+                  "description": "true = return only com.cloudempiere.* bundles. Reduces noise on large runtimes.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Returns OSGi bundle state + DS component state snapshot — the unique signal invisible to container/ALB health (`ACTIVE is a lie`).\n\n**Response shape (ADR §4.7):**\n```json\n{\n  \"bundles\": [ {\"symbolicName\":\"…\",\"version\":\"…\",\"state\":\"ACTIVE\",\"since\":\"…\"} ],\n  \"components\": [ {\"name\":\"…\",\"bundle\":\"…\",\"state\":\"UNSATISFIED_REFERENCE\",\"unsatisfiedReferences\":[\"IEventManager\"]} ],\n  \"summary\": {\"bundles_active\":813,\"components_unhealthy\":1}\n}\n```\n\nTip: add `?cldeOnly=true` to filter down to CLDE bundles only."
+          },
+          "response": [
+            {
+              "name": "200 — all healthy",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"bundles\": [\n    {\n      \"symbolicName\": \"com.cloudempiere.tms\",\n      \"version\": \"2.4.7\",\n      \"state\": \"ACTIVE\",\n      \"since\": \"2026-05-31T10:00:00Z\"\n    }\n  ],\n  \"components\": [\n    {\n      \"name\": \"com.cloudempiere.tms.event.handler\",\n      \"bundle\": \"com.cloudempiere.tms\",\n      \"state\": \"ACTIVE\",\n      \"unsatisfiedReferences\": [],\n      \"failure\": null\n    }\n  ],\n  \"summary\": {\n    \"bundles_active\": 813,\n    \"components_unhealthy\": 0\n  }\n}"
+            },
+            {
+              "name": "200 — DS component unsatisfied",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"bundles\": [\n    {\n      \"symbolicName\": \"com.cloudempiere.tms\",\n      \"version\": \"2.4.7\",\n      \"state\": \"ACTIVE\",\n      \"since\": \"2026-05-31T10:00:00Z\"\n    }\n  ],\n  \"components\": [\n    {\n      \"name\": \"com.cloudempiere.tms.event.handler\",\n      \"bundle\": \"com.cloudempiere.tms\",\n      \"state\": \"UNSATISFIED_REFERENCE\",\n      \"unsatisfiedReferences\": [\"IEventManager\"],\n      \"failure\": null\n    }\n  ],\n  \"summary\": {\n    \"bundles_active\": 813,\n    \"components_unhealthy\": 1\n  }\n}"
+            },
+            {
+              "name": "401 — no / invalid token",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"error\":\"Unauthorized\"}"
+            },
+            {
+              "name": "403 — tenant-scoped token on system endpoint",
+              "status": "Forbidden",
+              "code": 403,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"error\":\"Forbidden — system-tenant token required for this endpoint (policy B)\"}"
+            }
+          ]
+        },
+        {
+          "name": "startup — rich boot status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/startup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "startup"]
+            },
+            "description": "Full boot-phase breakdown: phase number/name, elapsed time, per-phase history, and any current blockers (unsatisfied DS references, unresolved bundles).\n\nUseful at deploy time to see exactly where boot is blocked."
+          },
+          "response": [
+            {
+              "name": "200 — boot complete",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"state\": \"ready\",\n  \"phase\": \"ready\",\n  \"phase_number\": 6,\n  \"phase_total\": 6,\n  \"started_at\": \"2026-05-31T10:00:00Z\",\n  \"elapsed_seconds\": 92,\n  \"progress\": {\n    \"bundles_total\": 230,\n    \"bundles_active\": 230,\n    \"bundles_pending\": 0,\n    \"ds_components_total\": 412,\n    \"ds_components_satisfied\": 412,\n    \"ds_components_pending\": 0,\n    \"ds_components_failed\": 0\n  },\n  \"blockers\": [],\n  \"history\": [\n    { \"phase\": \"osgi_framework\",    \"completed_at\": \"2026-05-31T10:00:08Z\", \"duration_seconds\": 8 },\n    { \"phase\": \"bundle_resolution\", \"completed_at\": \"2026-05-31T10:00:21Z\", \"duration_seconds\": 13 },\n    { \"phase\": \"ds_activation\",     \"completed_at\": \"2026-05-31T10:01:32Z\", \"duration_seconds\": 71 }\n  ]\n}"
+            },
+            {
+              "name": "200 — still starting (blocker present)",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"state\": \"starting\",\n  \"phase\": \"ds_activation\",\n  \"phase_number\": 3,\n  \"phase_total\": 6,\n  \"started_at\": \"2026-05-31T10:00:00Z\",\n  \"elapsed_seconds\": 47,\n  \"progress\": {\n    \"bundles_total\": 230,\n    \"bundles_active\": 218,\n    \"bundles_pending\": 12,\n    \"ds_components_total\": 412,\n    \"ds_components_satisfied\": 389,\n    \"ds_components_pending\": 23,\n    \"ds_components_failed\": 0\n  },\n  \"blockers\": [\n    {\n      \"kind\": \"ds_component_unsatisfied\",\n      \"name\": \"com.cloudempiere.tms.event.handler\",\n      \"bundle\": \"com.cloudempiere.tms\",\n      \"missing_references\": [\"IEventManager\"]\n    }\n  ],\n  \"history\": [\n    { \"phase\": \"osgi_framework\",    \"completed_at\": \"2026-05-31T10:00:08Z\", \"duration_seconds\": 8 },\n    { \"phase\": \"bundle_resolution\", \"completed_at\": \"2026-05-31T10:00:21Z\", \"duration_seconds\": 13 }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "events — recent event log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "events"],
+              "query": [
+                {
+                  "key": "since",
+                  "value": "2026-05-31T00:00:00Z",
+                  "description": "ISO-8601 timestamp — return events after this point.",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "PANIC",
+                  "description": "Filter by severity tier: PANIC | ALERT | AUDIT",
+                  "disabled": true
+                },
+                {
+                  "key": "tenant",
+                  "value": "",
+                  "description": "AD_Client_ID — filter to a specific tenant. System-tenant token sees all if omitted.",
+                  "disabled": true
+                },
+                {
+                  "key": "bundle",
+                  "value": "",
+                  "description": "Filter by bundle symbolic name.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Returns the in-memory ring buffer of recent events (default up to 5000, controlled by `OPS_COLLECTOR_EVENT_BUFFER_SIZE`).\n\n**Tenant scoping (policy B):**\n- System-tenant token → all tenants (or filter with `?tenant=<AD_Client_ID>`).\n- Tenant-scoped token → own `AD_Client_ID` only regardless of `?tenant=` param.\n\n**Severity tiers:** PANIC (page), ALERT (tenant-scoped block), AUDIT (notable).\n\nAll query params are optional — omit to get the full buffer."
+          },
+          "response": [
+            {
+              "name": "200 — events with PANIC",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"events\": [\n    {\n      \"schema_version\": \"1.0\",\n      \"event_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n      \"event_type\": \"plugin.component.failed_activation\",\n      \"severity\": \"PANIC\",\n      \"timestamp\": \"2026-05-31T10:01:03.123Z\",\n      \"source\": {\n        \"service\": \"idempiere\",\n        \"ecs_task_id\": \"abc123def456\",\n        \"container_id\": \"abc123def456-collector\",\n        \"iDempiere_version\": \"13.0.1\",\n        \"collector_version\": \"1.0.0\",\n        \"deployment_environment\": \"local\"\n      },\n      \"aggregation_hint\": \"per_task\",\n      \"tenant\": { \"ad_client_id\": 1000026, \"ad_client_name\": \"Acme\" },\n      \"subject\": {\n        \"kind\": \"ds_component\",\n        \"bundle\": \"com.cloudempiere.tms\",\n        \"bundle_version\": \"2.4.7\",\n        \"component\": \"com.cloudempiere.tms.event.handler\"\n      },\n      \"details\": {\n        \"state\": \"FAILED_ACTIVATION\",\n        \"missing_references\": [\"IEventManager\"],\n        \"failure_message\": \"Component failed to activate\",\n        \"stack_trace\": \"…\"\n      },\n      \"trace_id\": \"0123456789abcdef0123456789abcdef\",\n      \"span_id\": \"0123456789abcdef\",\n      \"dedupe_hash\": \"sha256:abc…\"\n    }\n  ],\n  \"total\": 1,\n  \"buffer_size\": 5000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data API — Warmup (system-tenant + env gate)",
+      "description": "Mutating deploy-gate endpoint. Requires:\n1. System-tenant token (AD_Client_ID 0)\n2. Env var `OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true` on the iDempiere container\n\nForces lazy DS components to activate (Strategy B) and returns a per-component classification. Run once post-deploy before reopening ALB traffic. Never call from a recurring probe.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "warmup — active validation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/warmup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "warmup"]
+            },
+            "description": "**Deploy gate — run once after a new image is deployed, before traffic opens.**\n\nForces `@Activate` on `IModelFactory`, `ICalloutFactory`, `IEventTopicHandler`, and the CLDE-table allowlist configured in `OPS_COLLECTOR_WARMUP_TABLES`. Returns when complete.\n\n**Response:** per-component classification — `ok` | `failed_activation` | `factory_shadowed` | `timeout`.\n\nEmits `plugin.warmup.completed` event + an `idempiere.warmup` OTel trace span (one child per component).\n\nReturns `503` if `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` is not `true`."
+          },
+          "response": [
+            {
+              "name": "200 — all components OK",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"result\": \"ok\",\n  \"components\": [\n    {\n      \"name\": \"com.cloudempiere.tms.event.handler\",\n      \"bundle\": \"com.cloudempiere.tms\",\n      \"status\": \"ok\",\n      \"activate_ms\": 12\n    }\n  ],\n  \"duration_ms\": 843\n}"
+            },
+            {
+              "name": "200 — component failed activation",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"result\": \"failed\",\n  \"components\": [\n    {\n      \"name\": \"com.cloudempiere.tms.event.handler\",\n      \"bundle\": \"com.cloudempiere.tms\",\n      \"status\": \"failed_activation\",\n      \"activate_ms\": null,\n      \"error\": \"NullPointerException in @Activate: IEventManager not bound\"\n    }\n  ],\n  \"duration_ms\": 503\n}"
+            },
+            {
+              "name": "503 — warmup disabled",
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"error\":\"Warmup endpoint disabled — set OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true\"}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
