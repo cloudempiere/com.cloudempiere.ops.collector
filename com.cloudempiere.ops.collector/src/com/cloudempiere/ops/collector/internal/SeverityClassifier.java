@@ -43,11 +43,13 @@ public class SeverityClassifier {
 			case "ops.jvm.oom":
 			case "ops.boot.stalled":
 			case "ops.boot.crash_loop_detected":
+			case "ops.migration.failed":          // DB migration script in ERROR — do not mark healthy (req B)
 				return Severity.PANIC;
 
 			// tenant-scoped, blocks business
 			case "plugin.2pack.failed":
 			case "ops.runtime.component_degraded":
+			case "ops.migration.in_progress":     // a migration left mid-apply (lingering IP) — investigate
 				return Severity.ALERT;
 
 			// NON-DEFENSIVE (temporary): a DS component reporting UNSATISFIED_REFERENCE is too
