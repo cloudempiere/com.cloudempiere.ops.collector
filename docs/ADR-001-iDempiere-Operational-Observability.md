@@ -1141,6 +1141,55 @@ thread the agent's `Context` never reaches — so the listener should only **cap
 propagated `Context`) should do the **stamping**. Acceptance unchanged: `enduser.id` + `idempiere.window_id` on a
 `/zkau` span; the DIAG line flips to `spanValid=true` the moment the hook point is right.
 
+**VERDICT (2026-06-01) — root cause is async-dispatch context propagation; app-code enrichment DEFERRED, not abandoned (Option A, TEMPORARY limitation).**
+The servlet-`Filter` direction above was pursued to exhaustion and is also closed *for now*. Two independent findings block it:
+
+1. **No plugin-local way to mount a `Filter` on `/zkau`.** The webui is a Jetty-10 OSGi **WAB**
+   (`org.adempiere.ui.zk`, `Web-ContextPath: webui`), not a Whiteboard/HttpService context. Tried & failed, all
+   from the fragment: (a) OSGi HTTP Whiteboard filter service — WAB ≠ Whiteboard, never binds; (b) a fragment
+   `ServletContainerInitializer` (`META-INF/services/javax.servlet.ServletContainerInitializer`) — Jetty does
+   **not** scan a fragment's services here, no `SCI onStartup` at boot; (c) Equinox
+   `ExtendedHttpService.registerFilter` — `/zkau` is served directly by the WAB, **not** through the
+   `ProxyServlet` bridge that `registerFilter` feeds. Only the core `web.xml`/`jetty-web.xml` can mount a filter
+   on `/zkau`, which requires a full iDempiereCLDE **product rebuild** (heaviest pipeline).
+
+2. **Even a correctly-mounted filter would not help — the real root cause.** An `OTEL_JAVAAGENT_DEBUG=true`
+   spike (webui task-def `:107`, image `20260601-181755`) proved the mechanism. The servlet + jetty-10 +
+   async-servlet instrumentation **all load and transform correctly** — `Transformed
+   org.zkoss.zk.au.http.DHtmlUpdateServlet`, `org.atmosphere.cpr.AtmosphereRequest/Response`,
+   `javax.servlet.AsyncContext`, `org.eclipse.jetty.server.AsyncContextEvent/State`; only the irrelevant
+   `jetty/v12_0` module fails the Java-11 classfile check. The agent **creates and exports** the `/zkau` server
+   span. But iDempiere dispatches the request **asynchronously on pooled Jetty `qtp` threads** (Atmosphere + ZK),
+   and the agent cannot re-attach its `Context` across that hand-off:
+
+   ```
+   PropagatedContext - Failed to propagate context because previous propagated context is already set;
+     new: {… opentelemetry-servlet-async-context=ServletAsyncContext@… , …trace-span-key=SdkSpan{kind=SERVER …}}
+   ```
+
+   So `Span.current()` is the no-op span at **every** app-reachable point on the `qtp` thread —
+   `ExecutionInit`, `ExecutionCleanup`, `EventInterceptor`, and (had it mounted) the servlet `Filter` alike.
+   This is a known OTel-agent limitation with custom async frameworks (Atmosphere is not a dispatch pattern the
+   agent propagates through); **no `OTEL_*` flag fixes it.**
+
+**Decision (Option A): DEFER app-code span enrichment of `/zkau` — a temporary limitation, not a permanent drop.**
+The OTel **agent's auto-instrumented traces** (URL, status, duration, nested JDBC children) are produced by the
+agent independently of this plugin and are **retained** (`otel_enabled=true`). The
+`com.cloudempiere.ops.trace.webui` enrichment fragment (`WebuiSpanEnricher`, `WebuiEventEnricher`,
+`WebuiTraceFilter`, the SCI + handoff) is **left in place but dormant** — best-effort, never registers, never
+alters request handling — **kept, not removed**, so the work is ready to resume. Identity tagging
+(`enduser.id` / `idempiere.window_id`) is **temporarily unavailable on the spans**; trace-level observability
+(activity, latency, SQL fan-out) stands.
+
+**Revisit when** any of: (a) iDempiere moves webui off Atmosphere/ZK **async** dispatch (a synchronous `/zkau`
+would put the agent's `Context` on the request thread, where `Span.current()` would be valid); (b) the OTel
+agent improves async-context propagation for custom frameworks; (c) we accept the core
+`web.xml`/`jetty-web.xml` filter route via a full product rebuild; or (d) we route per-user `/zkau` visibility
+through a **substrate "user activity" lifecycle event** (ADR-024) emitted from iDempiere where `Env` identity is
+on the thread — no agent context needed. **NOTE:** §11.5/§11.6 (SQL fan-out, DS/warmup health) are **not**
+affected — they run in an agent-side `SpanProcessor` where `LocalRootSpan.current()` is valid, not on the
+detached ZK callback thread.
+
 ### 11.5 REQUIREMENT — request-scoped SQL fan-out + pool-wait telemetry (NEW, tier-agnostic)
 
 The 2026-05-30 traces named the latency mechanism *qualitatively* (one `/zkau` click =
