@@ -141,7 +141,16 @@ public class EventDispatcher {
 		}
 
 		// 1. FLOOR — always. Routes to the iDempiere log stream → container stdout.
-		log.log(Level.SEVERE, toJson(event));
+		// Log at a level that MATCHES the event severity, NOT a blanket SEVERE. iDempiere's
+		// CLogErrorBuffer persists SEVERE records to AD_Issue via MIssue.create — a DB write
+		// per event. Blanket-SEVERE meant a boot-time event burst (transiently-UNSATISFIED DS
+		// components on the first SCR poll) became an MIssue.create storm that held/leaked
+		// HikariCP connections on the bundle-activation threads, starving the REST plugin's
+		// own boot-time DB work → /api/v1/health registered past the ALB window → deploy
+		// rolled back (CLD-1912 Gotcha B). PANIC stays SEVERE; ALERT/AUDIT drop below it.
+		// CloudWatch metric filters key on the JSON $.severity field, not the log level, so
+		// alerting is unaffected.
+		log.log(levelFor(event.getSeverity()), toJson(event));
 
 		// 2. TODO Phase 3: otel.emit(event)  — wrap in try/catch, log.warn on failure.
 
@@ -156,6 +165,21 @@ public class EventDispatcher {
 			}
 		}
 		// No DB write on the hot path — the DB sink is a separate async EventAdmin consumer.
+	}
+
+	/**
+	 * Map event severity → JUL log level for the stdout floor (CLD-1912 Gotcha B). Only PANIC
+	 * reaches {@code SEVERE} (and thus iDempiere's AD_Issue/{@code MIssue.create} path); ALERT
+	 * and AUDIT stay below it so a high-volume event stream never writes to the DB.
+	 */
+	private static Level levelFor(Severity s) {
+		if (s == null) return Level.WARNING;
+		switch (s) {
+			case PANIC: return Level.SEVERE;
+			case ALERT: return Level.WARNING;
+			case AUDIT:
+			default:    return Level.INFO;
+		}
 	}
 
 	/** Build an OSGi event: hierarchical topic per event type + flat properties for filtering,
