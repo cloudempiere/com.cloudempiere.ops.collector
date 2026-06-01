@@ -159,18 +159,19 @@ public class OpsV1Resource {
 	}
 
 	/**
-	 * Secondary auth path: validates the upstream {@code REST_HEALTH_MONITORING_KEY} SysConfig value
-	 * against the {@code ?key=} query parameter. If the key is not configured this always returns
-	 * unauthenticated — callers must use a JWT token instead. When the key matches the caller is
-	 * treated as System-tenant (same scope as the key grants on {@code /api/v1/health}).
-	 * Read-only endpoints only — {@code warmup} is intentionally excluded.
+	 * Secondary auth path: validates the {@code REST_OPS_MONITORING_KEY} SysConfig value against
+	 * the {@code ?key=} query parameter. Deliberately separate from {@code REST_HEALTH_MONITORING_KEY}
+	 * so an operator gating {@code /api/v1/health} does not inadvertently unlock the more sensitive
+	 * bundle/DS/event data. If the key is not configured this always returns unauthenticated —
+	 * callers must use a JWT token instead. When the key matches the caller is treated as
+	 * System-tenant ({@code AD_Client_ID 0}). Read-only endpoints only — {@code warmup} excluded.
 	 */
 	private static Caller pinCaller(UriInfo uriInfo) {
-		String configuredKey = MSysConfig.getValue("REST_HEALTH_MONITORING_KEY", "");
+		String configuredKey = MSysConfig.getValue("REST_OPS_MONITORING_KEY", "");
 		if (Util.isEmpty(configuredKey)) return new Caller(false, false, -1);
 		String provided = uriInfo.getQueryParameters().getFirst("key");
 		if (!configuredKey.equals(provided)) return new Caller(false, false, -1);
-		return new Caller(true, true, 0);   // System-tenant: same scope the key grants on /api/v1/health
+		return new Caller(true, true, 0);   // System-tenant scope
 	}
 
 	private static boolean tenantMatches(OpsEvent e, int clientId) {

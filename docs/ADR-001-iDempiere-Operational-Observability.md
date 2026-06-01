@@ -290,15 +290,16 @@ void activate(BundleContext ctx, Map<String, Object> config) { ... }
 >     (`AD_Client_ID 0`); `events` is **tenant-scoped** by `AD_Client_ID`. `warmup` additionally
 >     requires `OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true`. The intended caller is a narrow
 >     `ops-monitor` M2M client — see [`PROVISIONING-ops-monitor-m2m.md`](PROVISIONING-ops-monitor-m2m.md).
->   - **Data API — secondary: health monitoring key (`?key=`).** Callers that cannot run an OAuth
+>   - **Data API — secondary: ops monitoring key (`?key=`).** Callers that cannot run an OAuth
 >     flow (deploy pipelines, simple monitoring scripts) may authenticate `GET` requests to
->     `startup`, `plugins`, and `events` by passing the upstream `REST_HEALTH_MONITORING_KEY`
->     `AD_SysConfig` value as a `?key=` query parameter — the same mechanism the REST fork uses for
->     `GET /api/v1/health`. **`POST /warmup` is intentionally excluded** (mutating; JWT only).
+>     `startup`, `plugins`, and `events` by passing the `REST_OPS_MONITORING_KEY` `AD_SysConfig`
+>     value as a `?key=` query parameter. **Deliberately separate from `REST_HEALTH_MONITORING_KEY`**
+>     — an operator gating `/api/v1/health` does not inadvertently unlock the more sensitive
+>     bundle/DS/event data. **`POST /warmup` is intentionally excluded** (mutating; JWT only).
 >     Implementation: `CLDERequestFilter` was extended (CLDE mark in `RequestFilter.java`) to
 >     return early for these three paths when the key matches, bypassing JWT validation;
 >     `OpsV1Resource.pinCaller()` then resolves the caller as System-tenant (`AD_Client_ID 0`).
->     If `REST_HEALTH_MONITORING_KEY` is not set in `AD_SysConfig`, the pin path is disabled and
+>     If `REST_OPS_MONITORING_KEY` is not set in `AD_SysConfig`, the pin path is disabled and
 >     only JWT auth is accepted — no accidental open access.
 
 Register the JAX-RS resource through the rest fork's `ResourceExtension` SPI (`com.trekglobal.idempiere.rest.api`; same way `CacheResourceExtension` is registered). Do **not** stand up an independent HTTP server for the *data* API (the probes are the one deliberate exception — a minimal WAB servlet, per the amendment above).

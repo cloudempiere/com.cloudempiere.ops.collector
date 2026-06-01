@@ -2,7 +2,7 @@
   "info": {
     "name": "Cloudempiere — Ops Collector",
     "_postman_id": "ce-ops-collector",
-    "description": "Endpoints for com.cloudempiere.ops.collector (ADR-001).\n\n**Two surfaces:**\n- **Probes** (`/ops/*`) — unauthenticated WAB servlet; point ALB / Docker health checks at `/ops/readyz`.\n- **Data API** (`/api/v1/ops/*`) — two auth options:\n  - **M2M Bearer token** (Cognito `client_credentials`) — full auth, use for production monitoring.\n  - **Pin auth** (`?key=`) — reuses the upstream `REST_HEALTH_MONITORING_KEY` SysConfig value; use for deploy pipelines and simple scripts that cannot run an OAuth flow. Read-only endpoints only (`startup`, `plugins`, `events`). Set `healthMonitoringKey` variable.\n\n**Local dev quick-start (M2M)**\n1. Set `baseUrl` to your iDempiere host (default `http://localhost:8080`).\n2. Fill `clientId` / `clientSecret` / `cognitoTokenUrl` for your environment.\n3. Run **Auth → Get M2M Token** — the `accessToken` variable is set automatically.\n\n**Local dev quick-start (pin)**\n1. Set `REST_HEALTH_MONITORING_KEY` in `AD_SysConfig` on the iDempiere instance.\n2. Set `healthMonitoringKey` collection variable to the same value.\n3. Use requests in **Data API — Pin Auth** folder directly — no token step needed.\n\nSee `docs/PROVISIONING-ops-monitor-m2m.md` for M2M provisioning steps.",
+    "description": "Endpoints for com.cloudempiere.ops.collector (ADR-001).\n\n**Two surfaces:**\n- **Probes** (`/ops/*`) — unauthenticated WAB servlet; point ALB / Docker health checks at `/ops/readyz`.\n- **Data API** (`/api/v1/ops/*`) — two auth options:\n  - **M2M Bearer token** (Cognito `client_credentials`) — full auth, use for production monitoring.\n  - **Pin auth** (`?key=`) — uses `REST_OPS_MONITORING_KEY` AD_SysConfig value (separate from `REST_HEALTH_MONITORING_KEY`); use for deploy pipelines and simple scripts that cannot run an OAuth flow. Read-only endpoints only (`startup`, `plugins`, `events`). Set `healthMonitoringKey` variable.\n\n**Local dev quick-start (M2M)**\n1. Set `baseUrl` to your iDempiere host (default `http://localhost:8080`).\n2. Fill `clientId` / `clientSecret` / `cognitoTokenUrl` for your environment.\n3. Run **Auth → Get M2M Token** — the `accessToken` variable is set automatically.\n\n**Local dev quick-start (pin)**\n1. Set `REST_HEALTH_MONITORING_KEY` in `AD_SysConfig` on the iDempiere instance.\n2. Set `healthMonitoringKey` collection variable to the same value.\n3. Use requests in **Data API — Pin Auth** folder directly — no token step needed.\n\nSee `docs/PROVISIONING-ops-monitor-m2m.md` for M2M provisioning steps.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -40,7 +40,7 @@
     {
       "key": "healthMonitoringKey",
       "value": "",
-      "description": "Value of AD_SysConfig REST_HEALTH_MONITORING_KEY on the target instance. Used by the Pin Auth folder as ?key=. Store in Postman Vault — never commit.",
+      "description": "Value of AD_SysConfig REST_OPS_MONITORING_KEY on the target instance. Used by the Pin Auth folder as ?key=. Store in Postman Vault — never commit.",
       "type": "string"
     }
   ],
@@ -328,8 +328,8 @@
       ]
     },
     {
-      "name": "Data API — Pin Auth (REST_HEALTH_MONITORING_KEY)",
-      "description": "Read-only data endpoints authenticated via the upstream `REST_HEALTH_MONITORING_KEY` SysConfig value passed as `?key=`.\n\nNo OAuth flow needed — set `healthMonitoringKey` collection variable to the value configured in `AD_SysConfig` on the target instance.\n\nPin auth grants System-tenant scope (same as the key grants on `/api/v1/health`). `warmup` is intentionally excluded — it requires a Bearer token.",
+      "name": "Data API — Pin Auth (REST_OPS_MONITORING_KEY)",
+      "description": "Read-only data endpoints authenticated via the `REST_OPS_MONITORING_KEY` AD_SysConfig value passed as `?key=`.\n\nDeliberately separate from `REST_HEALTH_MONITORING_KEY` — setting a key for `/api/v1/health` does not grant access here.\n\nNo OAuth flow needed — set `healthMonitoringKey` collection variable to the value of `REST_OPS_MONITORING_KEY` configured in `AD_SysConfig` on the target instance. Pin auth grants System-tenant scope. `warmup` is intentionally excluded — it requires a Bearer token.",
       "item": [
         {
           "name": "startup — pin auth",
