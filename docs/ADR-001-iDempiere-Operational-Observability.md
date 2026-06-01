@@ -1117,6 +1117,30 @@ current, the agent isn't exposing it to app code at all → enrich via the agent
 `GlobalOpenTelemetry`, not `Span.current()`. **Not the guard, not the event thread — the span-scope.** Everything
 else (registration, bridge, observability) is solved and shipped.
 
+**CONFIRMATION (2026-06-01) — `ExecutionCleanup` is ALSO ruled out; the fix is the servlet Filter.**
+The capture-at-init / stamp-at-`cleanup` build was shipped and tested on the **latest image `20260601-131703`**
+(`ops.collector 131338` — which separately eliminated the boot-time `plugin.component.unsatisfied` flood: 0 emit
+events vs hundreds on `091343`, so boot now reaches `Server started` and the tier deploys clean in ~3 min). A
+logged-in `/zkau` click on it logs **both** hooks, and both are dead:
+
+```
+WebuiSpanEnricher.init:    parentNull=true  thread=qtp1886352908-396  spanValid=false  uid=1000579
+WebuiSpanEnricher.cleanup: thread=qtp1886352908-396                   spanValid=false  uid=1000579
+```
+
+`spanValid=false` at **cleanup** (same QTP thread, same request) → `ExecutionCleanup` is **not** a span-current
+point either. 371 logged-in `/zkau` traces, **0 enriched** — consistent. So of the fix-direction options above,
+**both ZK lifecycle hooks (`ExecutionInit` + `ExecutionCleanup`) are eliminated** — the OTel context is simply
+not on the thread at *any* ZK-listener callback for `/zkau`.
+
+**→ Remaining path (single open plugin item):** enrich from a point that runs **inside** the agent's span scope —
+a **servlet `Filter`** registered on the agent-instrumented `/zkau` servlet (where `Span.current()` is valid), OR
+capture `Context.current()` at that servlet entry and `makeCurrent()` it around the work that needs it. The ZK
+`Configuration` listener mechanism (which we fought to get registered, §11.4) gives us *code execution* but on a
+thread the agent's `Context` never reaches — so the listener should only **capture identity**, and a Filter (or a
+propagated `Context`) should do the **stamping**. Acceptance unchanged: `enduser.id` + `idempiere.window_id` on a
+`/zkau` span; the DIAG line flips to `spanValid=true` the moment the hook point is right.
+
 ### 11.5 REQUIREMENT — request-scoped SQL fan-out + pool-wait telemetry (NEW, tier-agnostic)
 
 The 2026-05-30 traces named the latency mechanism *qualitatively* (one `/zkau` click =

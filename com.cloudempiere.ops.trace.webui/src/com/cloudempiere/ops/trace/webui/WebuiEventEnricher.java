@@ -4,11 +4,14 @@
  *****************************************************************************/
 package com.cloudempiere.ops.trace.webui;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.adempiere.webui.adwindow.ADWindow;
 import org.adempiere.webui.adwindow.ADWindowContent;
 import org.adempiere.webui.desktop.IDesktop;
 import org.adempiere.webui.session.SessionManager;
 import org.compiere.model.GridTab;
+import org.compiere.util.CLogger;
 import org.zkoss.zk.ui.Component;
 import org.zkoss.zk.ui.event.Event;
 import org.zkoss.zk.ui.util.EventInterceptor;
@@ -30,6 +33,11 @@ import com.cloudempiere.ops.trace.webui.internal.OtelSpan;
  */
 public class WebuiEventEnricher implements EventInterceptor {
 
+	private static final CLogger log = CLogger.getCLogger(WebuiEventEnricher.class);
+	/** Cap each DIAG to the first dozen events so we don't spam CloudWatch (CLD-1912 §11.4). */
+	private static final AtomicInteger DIAG_EVT = new AtomicInteger();
+	private static final AtomicInteger DIAG_AFTER = new AtomicInteger();
+
 	@Override
 	public Event beforeProcessEvent(Event event) {
 		enrichCurrentSpan();
@@ -48,17 +56,39 @@ public class WebuiEventEnricher implements EventInterceptor {
 
 	@Override
 	public void afterProcessEvent(Event event) {
-		// no-op
+		// afterProcessEvent runs AFTER the click handler executed its DB queries — and the JDBC child
+		// spans proved the server span is current during those queries. So this is the likeliest point
+		// where Span.current() is still valid. Probe it, and if valid, stamp here too (best-effort).
+		try {
+			boolean valid = OtelSpan.currentSpanValid();
+			if (DIAG_AFTER.getAndIncrement() < 12) {
+				log.warning("[ops.trace.webui] DIAG afterEvent: thread=" + Thread.currentThread().getName()
+						+ " spanValid=" + valid);
+			}
+			if (valid) enrichCurrentSpan();
+		} catch (Throwable t) {
+			// best-effort
+		}
 	}
 
 	private void enrichCurrentSpan() {
 		try {
 			IDesktop appDesktop = SessionManager.getAppDesktop();
-			if (appDesktop == null) return;
-			Component active = appDesktop.getActiveWindow();
-			if (active == null) return;
+			Component active = (appDesktop != null) ? appDesktop.getActiveWindow() : null;
+			ADWindow adWindow = (active != null) ? ADWindow.findADWindow(active) : null;
 
-			ADWindow adWindow = ADWindow.findADWindow(active);
+			// DIAG (CLD-1912 §11.4): is the /zkau server span current at the EVENT-processing hook?
+			// The JDBC child spans nest under the server span, which means the OTel Context IS active
+			// somewhere in the request — this line tells us whether that "somewhere" is the ZK event
+			// thread (→ stamp here works) or not (→ neither ZK hook works, need a servlet Filter / the
+			// agent's stored span). Also reports whether an AD_Window was resolved, to disambiguate
+			// "span invalid" from "no active window".
+			if (DIAG_EVT.getAndIncrement() < 12) {
+				log.warning("[ops.trace.webui] DIAG event: thread=" + Thread.currentThread().getName()
+						+ " spanValid=" + OtelSpan.currentSpanValid()
+						+ " window=" + (adWindow != null ? Integer.toString(adWindow.getAD_Window_ID()) : "none"));
+			}
+
 			if (adWindow == null) return;   // active component isn't an AD_Window (process/form/info) — see TODO
 
 			OtelSpan.setLong("idempiere.window_id", adWindow.getAD_Window_ID());
