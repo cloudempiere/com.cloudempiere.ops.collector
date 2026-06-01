@@ -1,0 +1,4 @@
+# Jetty 10 OSGi (org.eclipse.jetty.annotations) scans this on the host org.adempiere.ui.zk
+# bundle classloader — which includes this fragment — and runs it at WAB startup to register
+# WebuiTraceFilter on /zkau. See WebuiTraceFilterInitializer + ADR-001 §11.4.
+com.cloudempiere.ops.trace.webui.internal.WebuiTraceFilterInitializer

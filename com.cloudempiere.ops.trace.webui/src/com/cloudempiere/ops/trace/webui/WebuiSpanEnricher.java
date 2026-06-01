@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.servlet.http.HttpServletRequest;
+
 import org.compiere.util.CLogger;
 import org.compiere.util.Env;
 import org.zkoss.zk.ui.Desktop;
@@ -16,6 +18,9 @@ import org.zkoss.zk.ui.util.ExecutionCleanup;
 import org.zkoss.zk.ui.util.ExecutionInit;
 
 import com.cloudempiere.ops.trace.webui.internal.OtelSpan;
+import com.cloudempiere.ops.trace.webui.internal.WebuiTraceFilter;
+
+import io.opentelemetry.api.trace.Span;
 
 /**
  * Identity layer of the webui span enrichment (ADR-001 §11.1).
@@ -57,12 +62,23 @@ public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 			id.desktopId = desktop != null ? desktop.getId() : null;
 			// Stash now (Env is populated on this servlet thread); stamp the span at cleanup (span current there).
 			exec.setAttribute(STASH, id);
-			// Best-effort: if the span happens to be current already at init, stamp now too.
+
+			// PRIMARY PATH (ADR-001 §11.4 fix): WebuiTraceFilter captured the agent's /zkau server span at
+			// the servlet scope — where Span.current() IS valid — onto the native request. Stamp THAT span
+			// object directly (it's still active mid-request, so setAttribute lands), never Span.current()
+			// which is the no-op span at every ZK callback.
+			Span captured = capturedSpan(exec);
+			boolean capturedValid = captured != null && captured.getSpanContext().isValid();
+			if (capturedValid) stampOn(captured, id);
+
+			// Best-effort fallback: if the span happens to be current already at init, stamp now too.
 			if (OtelSpan.currentSpanValid()) stamp(id);
 
 			if (id.userId > 0 && DIAG_INIT.getAndIncrement() < 12) {
 				log.warning("[ops.trace.webui] DIAG init: parentNull=true thread="
-						+ Thread.currentThread().getName() + " spanValid=" + OtelSpan.currentSpanValid()
+						+ Thread.currentThread().getName()
+						+ " currentValid=" + OtelSpan.currentSpanValid()
+						+ " capturedValid=" + capturedValid
 						+ " uid=" + id.userId);
 			}
 		} catch (Throwable t) {
@@ -86,6 +102,34 @@ public class WebuiSpanEnricher implements ExecutionInit, ExecutionCleanup {
 		} catch (Throwable t) {
 			// never propagate
 		}
+	}
+
+	/** Retrieve the span WebuiTraceFilter stashed on the native HttpServletRequest, or null. */
+	private static Span capturedSpan(Execution exec) {
+		try {
+			Object req = exec.getNativeRequest();
+			if (req instanceof HttpServletRequest) {
+				Object s = ((HttpServletRequest) req).getAttribute(WebuiTraceFilter.SPAN_ATTR);
+				if (s instanceof Span) return (Span) s;
+			}
+		} catch (Throwable t) {
+			// best-effort
+		}
+		return null;
+	}
+
+	/** Stamp the captured identity onto an explicit span (not Span.current()). */
+	private static void stampOn(Span span, Identity id) {
+		span.setAttribute("ad.client_id", id.clientId);
+		span.setAttribute("ad.user_id", id.userId);
+		span.setAttribute("ad.role_id", id.roleId);
+		span.setAttribute("ad.session_id", id.sessionId);
+		if (id.userName != null && !id.userName.isEmpty()) {
+			span.setAttribute("enduser.id", id.userName);            // OTel semconv (queryable in X-Ray)
+		} else if (id.userId > 0) {
+			span.setAttribute("enduser.id", Integer.toString(id.userId));
+		}
+		if (id.desktopId != null) span.setAttribute("zk.desktop_id", id.desktopId);
 	}
 
 	/** Stamp the captured identity onto whatever span is current now (no-op if invalid). */
