@@ -28,7 +28,7 @@
 		<idempiere.core.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/iDempiereCLDE/develop/latest/</idempiere.core.repository.url>
 		<!-- CLDE REST fork P2 — provides com.trekglobal.idempiere.rest.api (ResourceExtension SPI).
 		     Needed only by the optional com.cloudempiere.ops.rest transport bundle. -->
-		<idempiere.rest.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/com.trekglobal.idempiere.rest.custom/staging/latest/</idempiere.rest.repository.url>
+		<idempiere.rest.repository.url>https://cloudempiere-p2.s3.eu-west-1.amazonaws.com/plugins/com.trekglobal.idempiere.rest.custom/develop/latest/</idempiere.rest.repository.url>
 	</properties>
 
 	<build>
@@ -230,9 +230,10 @@
 		<profile>
 			<id>cloudempiere-local</id>
 			<properties>
+				<!-- Default workspace location. Override in ~/.m2/settings.xml or via -Dcloudempiere.workspace=... -->
 				<cloudempiere.workspace>${user.home}/github/idempiere-cloudempiere</cloudempiere.workspace>
 				<idempiere.core.repository.url>file:///${cloudempiere.workspace}/iDempiereCLDE/core/org.idempiere.p2/target/repository</idempiere.core.repository.url>
-				<idempiere.rest.repository.url>file:///${cloudempiere.workspace}/.p2-cache/rest</idempiere.rest.repository.url>
+				<idempiere.rest.repository.url>file:///${cloudempiere.workspace}/com.trekglobal.idempiere.rest.custom/com.trekglobal.idempiere.extensions.p2/target/repository</idempiere.rest.repository.url>
 			</properties>
 		</profile>
 	</profiles>

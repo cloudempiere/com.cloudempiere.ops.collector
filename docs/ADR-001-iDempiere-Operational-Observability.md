@@ -531,6 +531,12 @@ All config via environment variables (12-Factor III). Defaults shipped; nothing 
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTel Collector endpoint |
 | `OTEL_SERVICE_NAME` | `idempiere` | OTel resource attribute |
 
+**JVM system properties** (set via `-D` in the iDempiere JVM args, not as env vars):
+
+| JVM property | Default | Meaning |
+|---|---|---|
+| `ops.collector.health.blocking` | `false` | When `false` (default): bundle-resolution and DS-activation failures are logged as warnings but `/readyz` still returns 200, so a broken component never blocks a deployment. Set to `true` to restore strict gating (readyz=503 until all bundles resolve and all DS components satisfy). |
+
 ### 4.13 Logging
 
 - Use log4j2 (already in iDempiere). Configure JSON layout via `log4j2.xml` — the deploy of the collector ships a log4j2 fragment.

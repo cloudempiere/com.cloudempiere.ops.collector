@@ -77,6 +77,7 @@ public class BootPhaseTracker {
 	private volatile boolean stalledEmitted;
 	private int readyStableTicks;
 	private long timeoutSeconds;
+	private boolean healthBlocking;
 
 	// Latest computed progress + blockers (for the snapshot). Guarded by 'this'.
 	private final Map<String, Object> progress = new LinkedHashMap<>();
@@ -90,10 +91,11 @@ public class BootPhaseTracker {
 		this.startedAt = Instant.now();
 		this.phaseStartedAt = startedAt;
 		this.timeoutSeconds = envSeconds("OPS_COLLECTOR_BOOT_STARTUP_TIMEOUT_SECONDS", 300L);
+		this.healthBlocking = Boolean.getBoolean("ops.collector.health.blocking");
 		emitPhaseStarted(Phase.OSGI_FRAMEWORK);
 		poller = Executors.newSingleThreadScheduledExecutor(daemonFactory());
 		poller.scheduleWithFixedDelay(this::tickQuietly, 2L, 2L, TimeUnit.SECONDS);
-		log.info("Boot-phase tracker armed (startup timeout " + timeoutSeconds + "s)");
+		log.info("Boot-phase tracker armed (startup timeout " + timeoutSeconds + "s, health blocking " + healthBlocking + ")");
 	}
 
 	@Deactivate
@@ -170,8 +172,16 @@ public class BootPhaseTracker {
 		progress.put("ds_components_pending", dsPending);
 		progress.put("ds_components_failed", dsFailed);
 
-		if (bUnresolved > 0) return Phase.BUNDLE_RESOLUTION;
-		if (dsPending > 0 || dsFailed > 0) return Phase.DS_ACTIVATION;
+		if (bUnresolved > 0) {
+			if (healthBlocking) return Phase.BUNDLE_RESOLUTION;
+			log.warning("BUNDLE_RESOLUTION blockers detected (" + bUnresolved
+					+ " unresolved) — continuing to READY (non-blocking mode)");
+		}
+		if (dsPending > 0 || dsFailed > 0) {
+			if (healthBlocking) return Phase.DS_ACTIVATION;
+			log.warning("DS_ACTIVATION blockers detected (" + dsFailed + " failed, "
+					+ dsPending + " pending) — continuing to READY (non-blocking mode)");
+		}
 		return Phase.READY;
 	}
 
