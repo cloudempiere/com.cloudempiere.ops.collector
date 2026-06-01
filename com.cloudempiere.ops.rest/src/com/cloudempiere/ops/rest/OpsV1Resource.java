@@ -12,9 +12,12 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 
+import org.compiere.model.MSysConfig;
 import org.compiere.util.Env;
 import org.compiere.util.Util;
 import org.json.JSONArray;
@@ -63,8 +66,9 @@ public class OpsV1Resource {
 	// ---- Reads (authenticated; tenant-scoped per §4.7) ----
 
 	@GET @Path("startup") @Produces(MediaType.APPLICATION_JSON)
-	public Response startup() {
-		Caller c = caller();                       // boot status leaks bundle/component names
+	public Response startup(@Context UriInfo uriInfo) {
+		Caller c = caller();
+		if (!c.authenticated) c = pinCaller(uriInfo);  // fall back to REST_HEALTH_MONITORING_KEY
 		if (!c.authenticated) return unauthenticated();
 		if (!c.systemTenant) return forbidden();   // system-level → System-tenant token only (policy B)
 		OpsStatusService s = status();
@@ -73,8 +77,9 @@ public class OpsV1Resource {
 	}
 
 	@GET @Path("plugins") @Produces(MediaType.APPLICATION_JSON)
-	public Response plugins() {
-		Caller c = caller();                       // full bundle/DS list is system-level (§4.7 leak risk)
+	public Response plugins(@Context UriInfo uriInfo) {
+		Caller c = caller();
+		if (!c.authenticated) c = pinCaller(uriInfo);  // fall back to REST_HEALTH_MONITORING_KEY
 		if (!c.authenticated) return unauthenticated();
 		if (!c.systemTenant) return forbidden();   // bundles aren't tenant-owned → System-tenant token only
 		OpsStatusService s = status();
@@ -83,8 +88,9 @@ public class OpsV1Resource {
 	}
 
 	@GET @Path("events") @Produces(MediaType.APPLICATION_JSON)
-	public Response events(@QueryParam("max") int max) {
+	public Response events(@QueryParam("max") int max, @Context UriInfo uriInfo) {
 		Caller c = caller();
+		if (!c.authenticated) c = pinCaller(uriInfo);  // fall back to REST_HEALTH_MONITORING_KEY
 		if (!c.authenticated) return unauthenticated();
 		OpsStatusService s = status();
 		if (s == null) return unavailable();
@@ -150,6 +156,22 @@ public class OpsV1Resource {
 		}
 		int clientId = Env.getAD_Client_ID(ctx);
 		return new Caller(true, clientId == 0, clientId);
+	}
+
+	/**
+	 * Secondary auth path: validates the {@code REST_OPS_MONITORING_KEY} SysConfig value against
+	 * the {@code ?key=} query parameter. Deliberately separate from {@code REST_HEALTH_MONITORING_KEY}
+	 * so an operator gating {@code /api/v1/health} does not inadvertently unlock the more sensitive
+	 * bundle/DS/event data. If the key is not configured this always returns unauthenticated —
+	 * callers must use a JWT token instead. When the key matches the caller is treated as
+	 * System-tenant ({@code AD_Client_ID 0}). Read-only endpoints only — {@code warmup} excluded.
+	 */
+	private static Caller pinCaller(UriInfo uriInfo) {
+		String configuredKey = MSysConfig.getValue("REST_OPS_MONITORING_KEY", "");
+		if (Util.isEmpty(configuredKey)) return new Caller(false, false, -1);
+		String provided = uriInfo.getQueryParameters().getFirst("key");
+		if (!configuredKey.equals(provided)) return new Caller(false, false, -1);
+		return new Caller(true, true, 0);   // System-tenant scope
 	}
 
 	private static boolean tenantMatches(OpsEvent e, int clientId) {

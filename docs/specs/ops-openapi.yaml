@@ -1,0 +1,728 @@
+openapi: 3.0.3
+info:
+  title: Cloudempiere Ops Collector API
+  description: |
+    Operational observability endpoints for `com.cloudempiere.ops.collector` (ADR-001).
+
+    **Two distinct HTTP surfaces on the same host:**
+
+    | Surface | Base path | Auth | Purpose |
+    |---------|-----------|------|---------|
+    | **Probes** | `/ops` | None | Liveness / readiness / startup — point ALB and Docker health checks here |
+    | **Data API** | `/api/v1/ops` | Bearer (M2M) | OSGi bundle + DS component state, boot detail, event log, warmup gate |
+
+    ### Probe surface (`/ops/*`)
+    Served by `OpsHealthServlet` as a Web Application Bundle (`Web-ContextPath: ops`), outside the
+    JAX-RS REST app and its global auth filter. Response bodies are intentionally minimal — up/down
+    only, no bundle names or tenant data.
+
+    ### Data API (`/api/v1/ops/*`)
+    Contributed to the iDempiere REST fork via `OpsResourceExtension`. The global `CLDERequestFilter`
+    authenticates all requests (including Cognito `client_credentials` M2M tokens).
+
+    **Policy B authorization:**
+    - `startup`, `plugins`, `warmup` — **System-tenant token required** (`AD_Client_ID 0`).
+      A tenant-scoped token returns `403`.
+    - `events` — tenant-scoped: a System-tenant token sees all events; a tenant token sees only
+      its own `AD_Client_ID`.
+
+    ### Obtaining a System-tenant M2M token
+    POST `client_credentials` to the Cognito token endpoint using the `ops-monitor` app-client
+    (provisioned per `docs/PROVISIONING-ops-monitor-m2m.md`):
+    ```
+    POST {cognitoTokenUrl}
+    Content-Type: application/x-www-form-urlencoded
+
+    grant_type=client_credentials&client_id={clientId}&client_secret={clientSecret}
+    ```
+
+  version: 1.0.0
+  contact:
+    name: Cloudempiere
+    email: info@cloudempiere.com
+    url: https://www.cloudempiere.com
+  license:
+    name: GPL-2.0-or-later
+    url: https://www.gnu.org/licenses/gpl-2.0.html
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://staging.cloudempiere.com
+    description: Staging
+  - url: https://system.cloudempiere.com
+    description: Production
+
+tags:
+  - name: Probes
+    description: |
+      Unauthenticated WAB servlet — ALB / Docker health check targets.
+      No `Authorization` header accepted or required.
+  - name: Plugin Lifecycle
+    description: |
+      Authenticated data API — OSGi bundle + DS component state, boot phases, event log, warmup.
+      Requires a System-tenant M2M Bearer token for system-level endpoints.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Security
+# ──────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Cognito M2M `client_credentials` access token mapped to the `ops-monitor` System-tenant role
+        via `AD_Role_AppClientAccess`. See `docs/PROVISIONING-ops-monitor-m2m.md`.
+
+  schemas:
+
+    # ── Probe responses ───────────────────────────────────────────────────────
+
+    LivezResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [alive]
+      example:
+        status: alive
+
+    ReadyzResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, unready]
+        reasons:
+          type: array
+          items:
+            type: string
+          description: Present only when `status` is `unready`.
+      example:
+        status: unready
+        reasons:
+          - "DS component com.cloudempiere.tms.event.handler FAILED_ACTIVATION"
+
+    StartupzResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [started, starting]
+        phase:
+          type: string
+          description: Current boot phase name. Present while starting.
+        elapsed_seconds:
+          type: integer
+          description: Seconds since container start. Present while starting.
+      example:
+        status: starting
+        phase: ds_activation
+        elapsed_seconds: 47
+
+    # ── Data API responses ────────────────────────────────────────────────────
+
+    PhaseHistory:
+      type: object
+      properties:
+        phase:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: integer
+
+    BootBlocker:
+      type: object
+      properties:
+        kind:
+          type: string
+          example: ds_component_unsatisfied
+        name:
+          type: string
+          example: com.cloudempiere.tms.event.handler
+        bundle:
+          type: string
+          example: com.cloudempiere.tms
+        missing_references:
+          type: array
+          items:
+            type: string
+
+    BootProgress:
+      type: object
+      properties:
+        bundles_total:
+          type: integer
+        bundles_active:
+          type: integer
+        bundles_pending:
+          type: integer
+        ds_components_total:
+          type: integer
+        ds_components_satisfied:
+          type: integer
+        ds_components_pending:
+          type: integer
+        ds_components_failed:
+          type: integer
+
+    StartupResponse:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [starting, ready]
+        phase:
+          type: string
+        phase_number:
+          type: integer
+        phase_total:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        elapsed_seconds:
+          type: integer
+        progress:
+          $ref: '#/components/schemas/BootProgress'
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootBlocker'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhaseHistory'
+      example:
+        state: starting
+        phase: ds_activation
+        phase_number: 3
+        phase_total: 6
+        started_at: "2026-05-31T10:00:00Z"
+        elapsed_seconds: 47
+        progress:
+          bundles_total: 230
+          bundles_active: 218
+          bundles_pending: 12
+          ds_components_total: 412
+          ds_components_satisfied: 389
+          ds_components_pending: 23
+          ds_components_failed: 0
+        blockers:
+          - kind: ds_component_unsatisfied
+            name: com.cloudempiere.tms.event.handler
+            bundle: com.cloudempiere.tms
+            missing_references: [IEventManager]
+        history:
+          - phase: osgi_framework
+            completed_at: "2026-05-31T10:00:08Z"
+            duration_seconds: 8
+          - phase: bundle_resolution
+            completed_at: "2026-05-31T10:00:21Z"
+            duration_seconds: 13
+
+    BundleSnapshot:
+      type: object
+      properties:
+        symbolicName:
+          type: string
+          example: com.cloudempiere.tms
+        version:
+          type: string
+          example: 2.4.7
+        state:
+          type: string
+          enum: [ACTIVE, INSTALLED, RESOLVED, STARTING, STOPPING, UNINSTALLED]
+        since:
+          type: string
+          format: date-time
+
+    ComponentSnapshot:
+      type: object
+      properties:
+        name:
+          type: string
+          example: com.cloudempiere.tms.event.handler
+        bundle:
+          type: string
+          example: com.cloudempiere.tms
+        state:
+          type: string
+          enum: [ACTIVE, SATISFIED, UNSATISFIED_REFERENCE, FAILED_ACTIVATION, DISABLED]
+        unsatisfiedReferences:
+          type: array
+          items:
+            type: string
+        failure:
+          type: string
+          nullable: true
+
+    PluginsSummary:
+      type: object
+      properties:
+        bundles_active:
+          type: integer
+        components_unhealthy:
+          type: integer
+
+    PluginsResponse:
+      type: object
+      properties:
+        bundles:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSnapshot'
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentSnapshot'
+        summary:
+          $ref: '#/components/schemas/PluginsSummary'
+      example:
+        bundles:
+          - symbolicName: com.cloudempiere.tms
+            version: 2.4.7
+            state: ACTIVE
+            since: "2026-05-31T10:00:00Z"
+        components:
+          - name: com.cloudempiere.tms.event.handler
+            bundle: com.cloudempiere.tms
+            state: UNSATISFIED_REFERENCE
+            unsatisfiedReferences: [IEventManager]
+            failure: null
+        summary:
+          bundles_active: 813
+          components_unhealthy: 1
+
+    OpsEventSource:
+      type: object
+      properties:
+        service:
+          type: string
+          example: idempiere
+        ecs_task_id:
+          type: string
+        container_id:
+          type: string
+        iDempiere_version:
+          type: string
+        collector_version:
+          type: string
+        deployment_environment:
+          type: string
+          enum: [local, staging, prod]
+
+    OpsEventTenant:
+      type: object
+      properties:
+        ad_client_id:
+          type: integer
+          example: 1000026
+        ad_client_name:
+          type: string
+          example: Acme
+
+    OpsEventSubject:
+      type: object
+      properties:
+        kind:
+          type: string
+          example: ds_component
+        bundle:
+          type: string
+        bundle_version:
+          type: string
+        component:
+          type: string
+
+    OpsEvent:
+      type: object
+      properties:
+        schema_version:
+          type: string
+          example: "1.0"
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          example: plugin.component.failed_activation
+        severity:
+          type: string
+          enum: [PANIC, ALERT, AUDIT]
+        timestamp:
+          type: string
+          format: date-time
+        aggregation_hint:
+          type: string
+          enum: [per_task, per_cluster, per_tenant]
+        source:
+          $ref: '#/components/schemas/OpsEventSource'
+        tenant:
+          $ref: '#/components/schemas/OpsEventTenant'
+        subject:
+          $ref: '#/components/schemas/OpsEventSubject'
+        details:
+          type: object
+          additionalProperties: true
+        trace_id:
+          type: string
+        span_id:
+          type: string
+        dedupe_hash:
+          type: string
+
+    EventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsEvent'
+
+    WarmupComponent:
+      type: object
+      properties:
+        name:
+          type: string
+          example: com.cloudempiere.tms.event.handler
+        bundle:
+          type: string
+          example: com.cloudempiere.tms
+        status:
+          type: string
+          enum: [ok, failed_activation, factory_shadowed, timeout]
+        activate_ms:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    WarmupResponse:
+      type: object
+      properties:
+        result:
+          type: string
+          enum: [ok, failed]
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarmupComponent'
+        duration_ms:
+          type: integer
+      example:
+        result: failed
+        components:
+          - name: com.cloudempiere.tms.event.handler
+            bundle: com.cloudempiere.tms
+            status: failed_activation
+            activate_ms: null
+            error: "NullPointerException in @Activate: IEventManager not bound"
+        duration_ms: 503
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        reason:
+          type: string
+      example:
+        status: forbidden
+        reason: System-tenant scope required
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── Probes ─────────────────────────────────────────────────────────────────
+
+  /ops/readyz:
+    get:
+      tags: [Probes]
+      summary: Full readiness probe
+      description: |
+        Checks collector internal state, DS components (no `FAILED_ACTIVATION`), DB reachability,
+        and whether a `SIGTERM` drain is in progress.
+
+        **Wire ALB target-group health check here** (use `startPeriod >= 180s`).
+
+        Response body is minimal — `503` means "not ready"; it does not reveal which component failed
+        or which tenant is affected.
+      operationId: readyz
+      security: []
+      responses:
+        '200':
+          description: Container is ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyzResponse'
+              example:
+                status: ready
+        '503':
+          description: Container is not ready (starting, degraded, or draining).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyzResponse'
+              example:
+                status: unready
+                reasons:
+                  - "DS component com.cloudempiere.tms.event.handler FAILED_ACTIVATION"
+
+  /ops/livez:
+    get:
+      tags: [Probes]
+      summary: Process liveness probe
+      description: |
+        Cheap — no dependency checks, no DB calls. Returns `200` if the collector bundle is running.
+
+        Wire to `docker HEALTHCHECK`. Distinguish from `/ops/readyz`:
+        `livez` = the JVM is alive; `readyz` = the JVM is healthy and ready for traffic.
+      operationId: livez
+      security: []
+      responses:
+        '200':
+          description: Collector bundle is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivezResponse'
+
+  /ops/startupz:
+    get:
+      tags: [Probes]
+      summary: Boot-complete probe
+      description: |
+        Returns `200` once boot Phase 4+ is reached (all bundles ACTIVE, DS satisfied).
+        Returns `503` while booting.
+
+        Suitable as a Kubernetes `startupProbe`. In ECS, use a long `startPeriod` on `/ops/readyz`
+        instead.
+      operationId: startupz
+      security: []
+      responses:
+        '200':
+          description: Boot complete.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartupzResponse'
+              example:
+                status: started
+        '503':
+          description: Still booting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartupzResponse'
+              example:
+                status: starting
+                phase: ds_activation
+                elapsed_seconds: 47
+
+  # ── Data API ────────────────────────────────────────────────────────────────
+
+  /api/v1/ops/startup:
+    get:
+      tags: [Plugin Lifecycle]
+      summary: Rich boot status
+      description: |
+        Full boot-phase breakdown: current phase, elapsed time, per-bundle / per-component progress
+        counters, active blockers (unsatisfied DS references, unresolved bundles), and phase history.
+
+        **System-tenant token required** — boot state reveals internal bundle and component names.
+      operationId: getStartup
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Boot status snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartupResponse'
+        '401':
+          description: No or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: unauthenticated
+        '403':
+          description: Token authenticated but not System-tenant (policy B).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: forbidden
+                reason: System-tenant scope required
+        '503':
+          description: Collector `OpsStatusService` not yet available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: unavailable
+
+  /api/v1/ops/plugins:
+    get:
+      tags: [Plugin Lifecycle]
+      summary: Bundle + DS component snapshot
+      description: |
+        Returns the current OSGi bundle state and Declarative Services component state for all
+        bundles in the runtime — the unique signal invisible to container / ALB health checks
+        ("ACTIVE is a lie": a bundle can be `ACTIVE` while its DS components are `UNSATISFIED`).
+
+        **System-tenant token required** — bundle names can encode tenant identity.
+      operationId: getPlugins
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Bundle + DS snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginsResponse'
+        '401':
+          description: No or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Token authenticated but not System-tenant (policy B).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: forbidden
+                reason: System-tenant scope required
+        '503':
+          description: Collector not yet available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/ops/events:
+    get:
+      tags: [Plugin Lifecycle]
+      summary: Recent event log
+      description: |
+        Returns events from the in-memory ring buffer (capped at `OPS_COLLECTOR_EVENT_BUFFER_SIZE`,
+        default 5000).
+
+        **Tenant scoping (policy B):**
+        - System-tenant token → all events.
+        - Tenant-scoped token → own `AD_Client_ID` only (server-side; `?tenant` cannot widen scope).
+
+        **Severity tiers:** `PANIC` (page), `ALERT` (tenant-scoped business block), `AUDIT` (notable).
+      operationId: getEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: max
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+          description: Maximum number of events to return. Defaults to 100.
+      responses:
+        '200':
+          description: Event list (may be empty).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '401':
+          description: No or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Collector not yet available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/ops/warmup:
+    post:
+      tags: [Plugin Lifecycle]
+      summary: Active warmup — deploy gate
+      description: |
+        Forces lazy DS components to activate (Strategy B, ADR-001 §4.9) and returns a
+        per-component classification. Run **once post-deploy**, before reopening ALB traffic.
+
+        **Never call from a recurring probe** — it mutates the runtime.
+
+        **Requirements:**
+        - System-tenant token (`AD_Client_ID 0`).
+        - Env var `OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true` on the container (opt-in; off by default).
+
+        **Side effects:**
+        - Emits a `plugin.warmup.completed` event.
+        - Creates an `idempiere.warmup` OTel trace span with one child span per component.
+      operationId: postWarmup
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Warmup completed (check `result` field — may be `failed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarmupResponse'
+        '401':
+          description: No or invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Token not System-tenant, or warmup disabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notSystemTenant:
+                  summary: Policy B rejected
+                  value:
+                    status: forbidden
+                    reason: System-tenant scope required
+                warmupDisabled:
+                  summary: Env gate not set
+                  value:
+                    status: disabled
+                    reason: "warmup is opt-in; set OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true to allow"
+        '503':
+          description: Collector not yet available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

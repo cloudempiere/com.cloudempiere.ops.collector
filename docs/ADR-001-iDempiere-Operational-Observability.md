@@ -280,16 +280,27 @@ void activate(BundleContext ctx, Map<String, Object> config) { ... }
 >   Bundle servlet (`OpsHealthServlet`, `Web-ContextPath: ops`) at **`/ops/livez|readyz|startupz`** —
 >   *outside* `/api/v1`, so the global `CLDERequestFilter` never applies and the ALB/Docker prober
 >   (which cannot send `Authorization`) reaches them. Point the ALB target-group check at `/ops/readyz`.
-> - **Auth — the four-tier model below was superseded by an M2M-first model (policy B):**
->   - **Probes** — *open* (WAB, outside the auth filter). No `OPS_COLLECTOR_PROBE_KEY`; bodies are
->     liveness/readiness booleans only.
->   - **Data API** — authenticated by the global filter, which already accepts **Cognito M2M
->     (`client_credentials`)** tokens; an M2M app-client maps to a real `(AD_Client_ID, AD_Role_ID,
->     AD_User_ID)` via `AD_Role_AppClientAccess`. **Policy B:** `startup`/`plugins`/`warmup` are
->     system-level → require a **System-tenant** token (`AD_Client_ID 0`); `events` is **tenant-scoped**
->     by `AD_Client_ID`. No SigV4 tier, no 15-min HMAC confirmation nonce; `warmup` is additionally
->     gated by `OPS_COLLECTOR_WARMUP_HTTP_ENABLED`. The intended caller is a narrow `ops-monitor`
->     role on an M2M client — see [`PROVISIONING-ops-monitor-m2m.md`](PROVISIONING-ops-monitor-m2m.md).
+> - **Auth — the four-tier model below was superseded by an M2M-first model (policy B) with a
+>   secondary pin-auth path:**
+>   - **Probes** — *open* (WAB, outside the auth filter). Bodies are liveness/readiness booleans only.
+>   - **Data API — primary: Cognito M2M JWT.** The global `CLDERequestFilter` authenticates
+>     **Cognito M2M (`client_credentials`)** tokens; an M2M app-client maps to a real
+>     `(AD_Client_ID, AD_Role_ID, AD_User_ID)` via `AD_Role_AppClientAccess`. **Policy B:**
+>     `startup`/`plugins`/`warmup` are system-level → require a **System-tenant** token
+>     (`AD_Client_ID 0`); `events` is **tenant-scoped** by `AD_Client_ID`. `warmup` additionally
+>     requires `OPS_COLLECTOR_WARMUP_HTTP_ENABLED=true`. The intended caller is a narrow
+>     `ops-monitor` M2M client — see [`PROVISIONING-ops-monitor-m2m.md`](PROVISIONING-ops-monitor-m2m.md).
+>   - **Data API — secondary: ops monitoring key (`?key=`).** Callers that cannot run an OAuth
+>     flow (deploy pipelines, simple monitoring scripts) may authenticate `GET` requests to
+>     `startup`, `plugins`, and `events` by passing the `REST_OPS_MONITORING_KEY` `AD_SysConfig`
+>     value as a `?key=` query parameter. **Deliberately separate from `REST_HEALTH_MONITORING_KEY`**
+>     — an operator gating `/api/v1/health` does not inadvertently unlock the more sensitive
+>     bundle/DS/event data. **`POST /warmup` is intentionally excluded** (mutating; JWT only).
+>     Implementation: `CLDERequestFilter` was extended (CLDE mark in `RequestFilter.java`) to
+>     return early for these three paths when the key matches, bypassing JWT validation;
+>     `OpsV1Resource.pinCaller()` then resolves the caller as System-tenant (`AD_Client_ID 0`).
+>     If `REST_OPS_MONITORING_KEY` is not set in `AD_SysConfig`, the pin path is disabled and
+>     only JWT auth is accepted — no accidental open access.
 
 Register the JAX-RS resource through the rest fork's `ResourceExtension` SPI (`com.trekglobal.idempiere.rest.api`; same way `CacheResourceExtension` is registered). Do **not** stand up an independent HTTP server for the *data* API (the probes are the one deliberate exception — a minimal WAB servlet, per the amendment above).
 
