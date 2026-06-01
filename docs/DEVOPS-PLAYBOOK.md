@@ -19,16 +19,21 @@
  (build+publish P2)               (P2→image→ECR)      (roll one tier)     (curl/OSGi)
 ```
 
-| # | Tool (Jenkins job / CLI) | What it does | When you run it |
+| # | Tool | What it does | When you run it |
 |---|---|---|---|
-| ① | `cloudempiere/plugins/com.cloudempiere.ops.collector/master` | `mvn verify` → publishes P2 to `s3://cloudempiere-p2/plugins/com.cloudempiere.ops.collector/staging/latest/` | after merge to `master`; or to refresh the S3 P2 |
-| ② | `cloudempiere/infra/idempiere-clde-image` | installs plugins **from S3 P2** into the image → Trivy → ECR push (tag `YYYYMMDD-HHMMSS`) | after ① publishes; auto-fired by ①'s cascade |
+| ① | **AWS CodeBuild `cloudempiere-plugin-build`** (the REAL plugin CI) | builds the plugin repo's **`master` HEAD** → publishes versioned P2 to `s3://…/plugins/<plugin>/staging/<ts>/` (+ `latest/`) + `build.json` (`git_sha`) → **bumps the BoDM ledger** `s3://cloudempiere-p2/versions/staging.json` `ts` | on merge to `master` (auto) |
+| ② | `cloudempiere/infra/idempiere-clde-image` | installs each plugin by resolving the **BoDM `ts`** → `staging/<ts>/` → Trivy → ECR push (tag `YYYYMMDD-HHMMSS`) | **after** ① bumped the BoDM `ts` (timing matters — see Gotcha A) |
 | ③ | `cloudempiere/infra/idempiere-clde-deploy` | rolls **one tier** to an image tag (ECS task-def revision + service update) | to put a baked image on a tier |
 | ③′ | `cloudempiere/infra/idempiere-clde-deploy-all` | orchestrates all tiers in order (staging `webui→rest→scheduler`) | full-env roll |
 | ④ | `aws` CLI + `curl` | ECS/ALB state, `bundles.info`, endpoint probes | always — never trust "deployed" without it |
 
-**Cascade note (ADR-116):** ① runs with `TRIGGERED_BY_CASCADE=false`, so on success it **auto-fires ②**.
-If you only want a build, that's fine; if you want a *controlled* bake, trigger ② yourself and watch.
+> ⚠️ **NOT the CI:** the Jenkins job `cloudempiere/plugins/com.cloudempiere.ops.collector/master`
+> builds a shared tree `ce-shared-src@develop` (not `master`) and does **not** feed the BoDM.
+> It is a red herring — triggering it does nothing for delivery.
+
+**To ship a merged change:** confirm CodeBuild published (`versions/staging.json` `ts` advanced **and**
+`staging/<ts>/build.json` `git_sha` == your `master` HEAD) → **then** bake ② → deploy ③. No local
+seed/override needed when CodeBuild + BoDM are healthy.
 
 ---
 
@@ -40,34 +45,39 @@ If you only want a build, that's fine; if you want a *controlled* bake, trigger 
 | Bake an image without deploying | ② with `TRIGGER_AUTO_DEPLOY_STAGING=false` | image sits in ECR; deploy later with ③ |
 | Roll one tier to a specific image | ③ `IMAGE_TAG_OVERRIDE=<tag>` `SERVICE=rest\|webui\|scheduler` | circuit breaker + rollback are ON by default |
 | Roll back a bad deploy | ③ `IMAGE_TAG_OVERRIDE=<previous-good-tag>` | or just let the circuit breaker do it (see Gotcha D) |
-| Get a fix on a tier when CI built the wrong source | **seed S3 → ② → ③** (see §2) | the escape hatch when ① doesn't reflect master |
+| Force a specific build onto a tier | publish versioned `staging/<ts>/` + bump `versions/staging.json` `ts` → ② → ③ (see §2) | seeding `latest/` alone does NOT work — bake reads the BoDM `ts` |
 | Prove a REST resource registered | `curl …/api/v1/ops/startup` → **401** not **404** | 404 = not registered; 401 = registered + auth (Policy B) |
 | Check "ACTIVE but broken" DS state | ECS Exec → `bundles.info` / OSGi `scr:list` | bundle ACTIVE ≠ component SATISFIED |
 
 ---
 
-## 2. The escape hatch — seed S3 P2 by hand (when CI builds the wrong source)
+## 2. Forcing a specific build (rarely needed — CodeBuild + BoDM normally handle it)
 
-The plugin multibranch job builds from a **shared source tree** (`/var/jenkins_home/ce-shared-src`,
-branch `develop`), **not** the plugin repo's freshly-merged `master`. So a green CI build can publish
-a P2 whose jar **does not contain your merged change** (Gotcha A). When that happens, bypass CI:
+**First check whether you even need this.** If CodeBuild already published your `master`, the BoDM
+already points at the right build — just bake ② + deploy ③:
 
 ```bash
-# 1. Build locally on master HEAD (qualifier must out-rank the CI jar so director picks yours)
-mvn clean verify -Pcloudempiere-local -DskipTests
-
-# 2. Overwrite the staging P2 with your local build (--delete = exact mirror, no stale jars)
-aws s3 sync com.cloudempiere.ops.collector.p2/target/repository/ \
-    s3://cloudempiere-p2/plugins/com.cloudempiere.ops.collector/staging/latest/ \
-    --region eu-west-1 --delete
-
-# 3. Bake from the seeded P2 (no auto-deploy), then deploy that tag with ③
-#    Jenkins: idempiere-clde-image  (TRIGGER_AUTO_DEPLOY_STAGING=false)
-#    Jenkins: idempiere-clde-deploy (SERVICE=rest, IMAGE_TAG_OVERRIDE=<new tag>)
+# Does the BoDM already point at your fix? (ts + the build's git_sha)
+aws s3 cp s3://cloudempiere-p2/versions/staging.json - --region eu-west-1 | python3 -m json.tool | grep -A2 ops.collector
+TS=<the ts from above>
+aws s3 cp s3://cloudempiere-p2/plugins/com.cloudempiere.ops.collector/staging/$TS/build.json - --region eu-west-1
+#   git_sha == your master HEAD?  → just bake ② + deploy ③. Done.
 ```
 
-> Verify the jar carries your change **before** baking:
-> `unzip -p …/com.cloudempiere.ops.rest_*.jar META-INF/MANIFEST.MF | grep ActivationPolicy`
+**Only if CodeBuild has NOT produced your build** (and you can't wait for it): publish a versioned
+build by hand and bump the ledger. **Seeding `staging/latest/` alone does nothing** — the bake resolves
+the BoDM `ts` directory, not `latest/`, and a CodeBuild publish will overwrite `latest/` anyway.
+
+```bash
+TS=$(date -u +%Y%m%d.%H%M%S)          # new versioned ts
+aws s3 sync com.cloudempiere.ops.collector.p2/target/repository/ \
+    s3://cloudempiere-p2/plugins/com.cloudempiere.ops.collector/staging/$TS/ --region eu-west-1
+# then set versions/staging.json -> "com.cloudempiere.ops.collector": { "ts": "$TS", "install_iu": … }
+#   (this mutates the BoDM ledger — get owner sign-off), then bake ② + deploy ③.
+```
+
+> Verify the BoDM-pinned jar carries your change **before** baking:
+> `aws s3 cp s3://…/staging/<ts>/plugins/com.cloudempiere.ops.rest_*.jar - | unzip -p /dev/stdin META-INF/MANIFEST.MF | grep ActivationPolicy`
 
 ---
 
@@ -98,11 +108,20 @@ webui tier (`/zkau`, `/webui`). CloudFront fronts both; `app.stg` does **not** r
 
 ---
 
-## 4. Gotchas discovered (CLD-1912, 2026-05-31)
+## 4. Gotchas discovered (CLD-1912, 2026-05-31 → 06-01)
 
-**A. CI builds `ce-shared-src@develop`, not your plugin's `master` HEAD.**
-A green ① build can publish a jar lacking your merged change. *Always* verify the built/baked jar
-contains your change (manifest header, class, etc.). Use §2 to bypass when needed.
+**A. Two build systems — use the right one; mind bake timing.**
+The **real** plugin CI is **AWS CodeBuild `cloudempiere-plugin-build`** — it builds `master` HEAD,
+publishes `staging/<ts>/`, and bumps the BoDM. The Jenkins job `…/plugins/…/master` builds
+`ce-shared-src@develop` and is a **red herring** (does not feed the BoDM). A bake reflects the BoDM
+`ts` *at bake time*, so after a merge you must bake **after** CodeBuild bumps the `ts` — a bake started
+before the bump ships the **previous** build (exactly how a stale `0913` shipped while `master` was
+already correct as `1143`). Verify `staging/<ts>/build.json` `git_sha` == your `master` HEAD.
+
+**G. The image bake resolves the BoDM `ts` dir, NOT `staging/latest/`.**
+`idempiere-clde-image` reads `versions/staging.json` → installs `staging/<ts>/`. Hand-seeding
+`staging/latest/` does nothing (and CodeBuild overwrites it). To force a build you must publish a
+versioned `staging/<ts>/` **and** bump the ledger `ts` (§2).
 
 **B. `EventDispatcher` logs every event at `Level.SEVERE` → `MIssue.create` → Hikari connection leak.**
 iDempiere's `CLogErrorBuffer` persists `SEVERE` log records to `AD_Issue` (DB writes). The collector
