@@ -139,6 +139,17 @@ single-tier). See `docs/DEPLOY-clde-infra-bake.md` for per-tier feature IUs.
   at task start). Install ≠ activation. Hot-deploy also evaporates on ECS task rollover. See
   `docs/DEPLOY-clde-infra-bake.md`, `docs/CICD-wiring.md`, ADR §11.2/§11.4, and the `llm-osgi-fastpath`
   skill (now in the `idempiere-tools` plugin).
+- **`internal/RuntimeHealthSource`** (SPEC-runtime-health-source, Phase 1 — zero DB cost) is the
+  *runtime* "ACTIVE is a lie" source: a recurring poller that scans `Trx.getOpenTransactions()` for
+  long-running transactions (age + originating `getStrackTrace()`) and the HikariCP pool via
+  `internal/PoolStatsShim` (reflection over `getHikariPoolMXBean()` — **no** `com.zaxxer.hikari`
+  compile dep, same shim pattern as OTel). Emits `ops.runtime.trx_long_running`/`pool_pressure`
+  (ALERT), `trx_leak_storm`/`pool_exhausted` (PANIC), `ops.runtime.ok` (AUDIT recovery). **Non-gating
+  by default** — `/readyz` stays strictly A/B/C-infra; getters (`hasTrxLeakStorm()`, …) are exposed
+  for an opt-in readiness contribution only.
 - **Runtime knobs (env vars):** `OPS_COLLECTOR_EVENT_BUFFER_SIZE`, `OPS_COLLECTOR_SCR_POLL_SECONDS`,
   `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS`, `OPS_COLLECTOR_WARMUP_TABLES`,
-  `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` (gates the mutating `POST /warmup`).
+  `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` (gates the mutating `POST /warmup`); runtime-health (Phase 1):
+  `OPS_COLLECTOR_RUNTIME_POLL_SECONDS` (60), `OPS_COLLECTOR_TRX_WARN_SECONDS` (300),
+  `OPS_COLLECTOR_TRX_CRITICAL_SECONDS` (3600), `OPS_COLLECTOR_TRX_LEAK_STORM_COUNT` (10),
+  `OPS_COLLECTOR_POOL_WARN_RATIO` (0.85).
