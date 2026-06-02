@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.4.0"
+      name="com.cloudempiere.ops.collector.internal.RuntimeHealthSource"
+      immediate="true"
+      activate="activate"
+      deactivate="deactivate">
+   <implementation class="com.cloudempiere.ops.collector.internal.RuntimeHealthSource"/>
+   <service>
+      <provide interface="com.cloudempiere.ops.collector.internal.RuntimeHealthSource"/>
+   </service>
+   <reference name="dispatcher"
+         interface="com.cloudempiere.ops.collector.internal.EventDispatcher"
+         cardinality="1..1"
+         policy="static"
+         field="dispatcher"/>
+</scr:component>

@@ -9,10 +9,10 @@
   <!--
     Standalone JUnit 5 unit tests for the pure-logic classes (no OSGi/iDempiere runtime).
     NOT part of the Tycho reactor (JUnit 5 isn't in the iDempiere P2). Depends on the built
-    bundle jar, so install the parent pom + reactor first, then run (verified 8/8 green):
+    bundle jar, so install the parent pom + reactor first, then run (verified 16/16 green):
       mvn -f com.cloudempiere.ops.collector.parent/pom.xml install -N
       mvn install -Pcloudempiere-local -DskipTests
-      mvn -f com.cloudempiere.ops.collector.test/pom.xml test
+      mvn -f com.cloudempiere.ops.collector.test/pom.xml test -Dmaven.repo.local=~/.m2/repository-idempiere-10
     OSGi integration tests (Pax Exam: broken bundle -> assert events) are a separate effort
     per ADR-001 §4.15.
   -->
@@ -30,6 +30,20 @@
       <artifactId>com.cloudempiere.ops.collector</artifactId>
       <version>1.0.0-SNAPSHOT</version>
       <scope>test</scope>
+      <!--
+        The collector imports io.opentelemetry.api.trace, so its Tycho-flattened POM carries a
+        compile-scope dependency on the ops.lib.opentelemetry bundle with type=eclipse-plugin.
+        Plain (non-Tycho) Maven cannot map the eclipse-plugin type to the installed .jar, so it
+        would fail resolution / fall back to the S3 p2 repo. These unit tests exercise only the
+        pure-logic classes (SeverityClassifier, PoolStatsShim.Stats) which never touch OTel, so we
+        exclude the OTel bundle from the test classpath.
+      -->
+      <exclusions>
+        <exclusion>
+          <groupId>com.cloudempiere</groupId>
+          <artifactId>com.cloudempiere.ops.lib.opentelemetry</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
