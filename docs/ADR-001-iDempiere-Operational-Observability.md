@@ -879,9 +879,34 @@ The external sampler already **proved the hardest assumptions** this collector r
 - **Health/drain vs ADR-007.** The DS-aware `/ops/v1/readyz` should become the ALB
   target-group check (it catches *"ACTIVE but DS-dead"* that today's `/webui/` check
   misses). But its `SIGTERM -> readyz=503 -> drain` (§4.17.4) overlaps **drain-first /
-  kill-session (ADR-007)**. Pin ownership: the collector flips ALB readiness;
-  `ceKillSession` still owns ZK session continuity. They compose (readiness drains new
-  traffic; kill-session drains sticky desktops) -- document the order in the deploy runbook.
+  kill-session (ADR-007)**. **Updated 2026-06-06 — ownership consolidated in-process; full
+  decision in [ADR-002](./ADR-002-In-Process-Session-Drain-Broadcast.md).**
+  `ShutdownHandler` now does BOTH on SIGTERM: (a) flips ALB readiness, and (b) broadcasts
+  the ZK session-timeout banner **to this node's own desktops, in-process**
+  (`EVENT_SESSION_ONNODE_TIMEOUT`, local-only `pushToQueue`, target = own
+  `WebUtil.getServerName()`). This **supersedes the external `ceKillSession`/drain-first
+  call for the deploy/scale path**: the broadcast originates *where the session lives*, so
+  there is no external wiring, no Cognito token, and no serverName/FQDN matching to keep in
+  sync (the whole class of "broadcast targeted a name `AD_Session.ServerName` never
+  contained" bugs — CLD-1845/1880 — disappears). It also fires for *any* SIGTERM (deploy,
+  scale-in, graceful stop), not just Jenkins-orchestrated drains. Two independent knobs:
+  `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS` (drain window, ≤ task `stopTimeout`) and
+  `OPS_COLLECTOR_BROADCAST_COUNTDOWN_SECONDS` (the `TimeoutPanel` countdown, clamped ≤ the
+  drain window); `OPS_COLLECTOR_BROADCAST_ON_SHUTDOWN=false` falls back to the external path.
+  Both timings resolve **AD_SysConfig → env var → default** (UI-editable, read at boot — a
+  change applies on the task's next start; the DB can't be read mid-SIGTERM). The broadcast
+  is **webui-only** (gated on `IDEMPIERE_TIER_NAME` containing `webui`) — rest/scheduler/
+  preview hold no ZK desktops; the drain/readiness half still runs on every tier.
+  The external REST `/processes/kill-current-session` (CEKillServerSessions, CLD-1906) stays
+  for ad-hoc/admin kicks with a per-request `timeoutinseconds`. EventBridge keeps the
+  `task.draining`/`task.terminating` **audit** only (no timing pressure). Order: readiness
+  flip → in-process banner → drain wait → terminate.
+  **Cross-knob coupling (must hold):** `countdown ≤ drain ≤ stopTimeout` AND
+  `(ALB health-check interval × unhealthy-threshold) + ALB deregistration_delay ≤ stopTimeout`
+  — else ECS SIGKILLs (at `stopTimeout`, Fargate-fixed 120s) before the ALB finishes draining
+  in-flight (held-open ZK comet) or before the banner completes. `stopTimeout`,
+  `deregistration_delay`, and the health-check live in `clde-infra`
+  (`modules/idempiere-clde-tier`); the app timings must be chosen to fit inside them.
 - **JVM metrics path.** The OTel agent + ADOT sidecar (§4.11) is the *native* JVM-metrics
   route -- it supersedes both the sampler's `/nodes` heap-string read and the
   Container-Insights Java/JMX option. Same **cost class** as flagged in ADR-064 (a sidecar
