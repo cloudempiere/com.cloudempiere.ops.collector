@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.compiere.model.MSysConfig;
 import org.compiere.util.CLogger;
+import org.compiere.util.DB;
 import org.compiere.util.Ini;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
@@ -314,7 +315,7 @@ public class BootPhaseTracker {
 	/** Declared-required plugins ({@code OPS_COLLECTOR_REQUIRED_PLUGINS} SysConfig, comma/space
 	 *  separated — NF12-shaped). Loaded once MSysConfig is reachable; retried each tick until then. */
 	private synchronized Set<String> requiredPlugins() {
-		if (!requiredLoaded) {
+		if (!requiredLoaded && DB.isConnected()) {
 			try {
 				String v = MSysConfig.getValue("OPS_COLLECTOR_REQUIRED_PLUGINS", "");
 				if (v != null) {

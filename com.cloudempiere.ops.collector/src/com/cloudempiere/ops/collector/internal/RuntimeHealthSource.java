@@ -26,6 +26,7 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.condition.Condition;
 
 /**
  * Runtime data-layer health source (SPEC-runtime-health-source, Phase 1 — zero DB cost). Surfaces
@@ -65,6 +66,10 @@ public class RuntimeHealthSource {
 	private static final double DEFAULT_POOL_WARN_RATIO = 0.85d;
 	/** Truncate originating stack traces to keep events small. */
 	private static final int STACK_TRACE_MAX_CHARS = 2000;
+
+	// CLD-1955: gate activation until DB is ready — Trx.getOpenTransactions() and PoolStatsShim need DB pool
+	@Reference(target = "(osgi.condition.id=idempiere.db.ready)")
+	private Condition dbReady;
 
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private EventDispatcher dispatcher;
