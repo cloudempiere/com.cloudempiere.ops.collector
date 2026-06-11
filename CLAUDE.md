@@ -148,7 +148,9 @@ single-tier). See `docs/DEPLOY-clde-infra-bake.md` for per-tier feature IUs.
   by default** — `/readyz` stays strictly A/B/C-infra; getters (`hasTrxLeakStorm()`, …) are exposed
   for an opt-in readiness contribution only.
 - **Runtime knobs (env vars):** `OPS_COLLECTOR_EVENT_BUFFER_SIZE`, `OPS_COLLECTOR_SCR_POLL_SECONDS`,
-  `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS`, `OPS_COLLECTOR_WARMUP_TABLES`,
+  `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS` (30), `OPS_COLLECTOR_BROADCAST_COUNTDOWN_SECONDS` (defaults
+  to drain window, clamped to ≤ drain), `OPS_COLLECTOR_BROADCAST_ON_SHUTDOWN` (true on webui tier —
+  set `false` to fall back to external ceKillSession path), `OPS_COLLECTOR_WARMUP_TABLES`,
   `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` (gates the mutating `POST /warmup`); runtime-health (Phase 1):
   `OPS_COLLECTOR_RUNTIME_POLL_SECONDS` (60), `OPS_COLLECTOR_TRX_WARN_SECONDS` (300),
   `OPS_COLLECTOR_TRX_CRITICAL_SECONDS` (3600), `OPS_COLLECTOR_TRX_LEAK_STORM_COUNT` (10),

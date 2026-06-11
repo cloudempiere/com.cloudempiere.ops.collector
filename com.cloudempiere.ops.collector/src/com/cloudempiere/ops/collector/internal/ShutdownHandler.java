@@ -10,7 +10,6 @@ package com.cloudempiere.ops.collector.internal;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.compiere.model.MSysConfig;
 import org.compiere.util.CLogger;
 import org.compiere.util.WebUtil;
 import org.idempiere.broadcast.BroadCastMsg;
@@ -61,13 +60,12 @@ public class ShutdownHandler {
 	void activate() {
 		// Drain window: how long the task lingers after SIGTERM before the JVM exits.
 		// Must stay ≤ the ECS task stopTimeout (120s on Fargate) or ECS SIGKILLs first.
-		// Resolution order: AD_SysConfig (UI-editable, read at boot) → env var → default.
-		drainSeconds = cfgSeconds("OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS", 30L);
+		drainSeconds = envSeconds("OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS", 30L);
 		// Banner countdown: the TimeoutPanel "save your work" timer shown to users
 		// (msg.intData). Independent of the drain window, but CLAMPED to ≤ drainSeconds —
 		// a countdown longer than the drain window never completes (the JVM exits first),
 		// so the user gets an abrupt cutoff anyway. Defaults to the drain window.
-		broadcastCountdownSeconds = cfgSeconds("OPS_COLLECTOR_BROADCAST_COUNTDOWN_SECONDS", drainSeconds);
+		broadcastCountdownSeconds = envSeconds("OPS_COLLECTOR_BROADCAST_COUNTDOWN_SECONDS", drainSeconds);
 		if (broadcastCountdownSeconds > drainSeconds)
 			broadcastCountdownSeconds = drainSeconds;
 		// In-process session-timeout broadcast is WEBUI-ONLY — only the webui tier holds ZK
@@ -164,22 +162,6 @@ public class ShutdownHandler {
 		if (v == null || v.isEmpty()) return fallback;
 		try { long n = Long.parseLong(v.trim()); return n >= 0 ? n : fallback; }
 		catch (NumberFormatException e) { return fallback; }
-	}
-
-	/**
-	 * Resolution order: AD_SysConfig (same key, UI-editable) → env var → built-in default.
-	 * Read once at {@code activate()} (boot) — the DB is up then; we cannot read AD_SysConfig
-	 * during SIGTERM (the pool is closing), so a UI change applies on the task's NEXT start.
-	 * Best-effort: a missing key / not-yet-ready DB falls through to the env/default.
-	 */
-	private static long cfgSeconds(String key, long fallback) {
-		try {
-			int v = MSysConfig.getIntValue(key, Integer.MIN_VALUE);
-			if (v != Integer.MIN_VALUE && v >= 0) return v;
-		} catch (Throwable t) {
-			// DB not ready / key absent — fall through to env, then default
-		}
-		return envSeconds(key, fallback);
 	}
 
 	/** True only on the webui tier (the only tier with ZK desktops to warn). Reads the
