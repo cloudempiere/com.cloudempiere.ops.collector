@@ -66,6 +66,8 @@ public class RuntimeHealthSource {
 	private static final double DEFAULT_POOL_WARN_RATIO = 0.85d;
 	/** Truncate originating stack traces to keep events small. */
 	private static final int STACK_TRACE_MAX_CHARS = 2000;
+	/** Max offending transactions named in the leak-storm System Issue log line. */
+	private static final int OFFENDER_SAMPLE_LIMIT = 5;
 
 	// CLD-1955: gate activation until DB is ready — Trx.getOpenTransactions() and PoolStatsShim need DB pool
 	@Reference(target = "(osgi.condition.id=idempiere.db.ready)")
@@ -210,7 +212,8 @@ public class RuntimeHealthSource {
 			details.put("threshold_count", trxLeakStormCount);
 			details.put("samples", samples);
 			dispatcher.emit("ops.runtime.trx_leak_storm", subject, details);  // PANIC — fleet-level
-			log.severe("Transaction leak storm: " + longRunning + " long-running (oldest " + oldestAge + "s)");
+			log.severe("Transaction leak storm: " + longRunning + " long-running (oldest " + oldestAge
+					+ "s); offenders: " + topOffenders(samples));
 		}
 		return longRunning > 0 || storm;
 	}
@@ -266,6 +269,26 @@ public class RuntimeHealthSource {
 	private static String truncate(String s) {
 		if (s == null) return null;
 		return s.length() <= STACK_TRACE_MAX_CHARS ? s : s.substring(0, STACK_TRACE_MAX_CHARS) + "…";
+	}
+
+	/** Compact, oldest-first summary of offending transactions for the System Issue log line. */
+	private static String topOffenders(List<Map<String, Object>> samples) {
+		if (samples == null || samples.isEmpty()) return "(none)";
+		List<Map<String, Object>> sorted = new ArrayList<>(samples);
+		sorted.sort((a, b) -> Long.compare(asLong(b.get("age_seconds")), asLong(a.get("age_seconds"))));
+		StringBuilder sb = new StringBuilder();
+		int n = Math.min(sorted.size(), OFFENDER_SAMPLE_LIMIT);
+		for (int i = 0; i < n; i++) {
+			if (i > 0) sb.append(", ");
+			Map<String, Object> s = sorted.get(i);
+			sb.append("trx=").append(s.get("trx_name")).append(" age=").append(s.get("age_seconds")).append('s');
+		}
+		if (sorted.size() > n) sb.append(", …+").append(sorted.size() - n).append(" more");
+		return sb.toString();
+	}
+
+	private static long asLong(Object o) {
+		return (o instanceof Number) ? ((Number) o).longValue() : 0L;
 	}
 
 	private static double round2(double v) {
