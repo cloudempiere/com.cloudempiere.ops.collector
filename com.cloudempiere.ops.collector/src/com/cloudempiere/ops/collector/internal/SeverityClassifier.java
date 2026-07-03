@@ -66,6 +66,13 @@ public class SeverityClassifier {
 			case "plugin.component.unsatisfied":
 				return Severity.AUDIT;
 
+			// identity / auth: a resource-server request rejected for an invalid ERP context
+			// (ADR-0037). AUDIT (not ALERT) on purpose — it is an expected, per-request security
+			// rejection once the guard is enforced; the dashboard aggregates rate/tenant. Escalate
+			// to ALERT later only with evidence (e.g. a sustained per-tenant spike), not by default.
+			case "auth.erp_context.rejected":
+				return Severity.AUDIT;
+
 			default:
 				// notable-but-expected: recoveries, deploys, boot phases, task/cluster lifecycle…
 				return Severity.AUDIT;
