@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Standalone OTel Java-agent EXTENSION jar (ADR-001 §11.5).
+
+      NOT a Tycho/OSGi bundle and intentionally NOT a module of the ops.collector reactor:
+      it is loaded by the OpenTelemetry agent (not the OSGi framework) via
+      -Dotel.javaagent.extensions=<this.jar>. All OTel deps are `provided` — the agent
+      supplies them (shaded) at runtime, so the jar ships only our two classes + the SPI file.
+    -->
+    <groupId>com.cloudempiere.ops</groupId>
+    <artifactId>com.cloudempiere.ops.otel.ext</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>CloudEmpiere OTel Agent Extension — SQL fan-out</name>
+
+    <properties>
+        <maven.compiler.release>11</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Align these two with the DEPLOYED opentelemetry-javaagent.jar version
+             (clde-infra images/idempiere-clde/Dockerfile OTEL_AGENT_VERSION).
+             instrumentation-api tracks the *agent* line; api/sdk track the OTel *API* line
+             the agent bridges (instrumentation-api 2.28.1 -> opentelemetry-api 1.62.0). -->
+        <otel.sdk.version>1.62.0</otel.sdk.version>
+        <otel.instrumentation.version>2.28.1</otel.instrumentation.version>
+    </properties>
+
+    <dependencies>
+        <!-- SpanProcessor / ReadableSpan / ReadWriteSpan -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <version>${otel.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- AttributeKey / Span / SpanKind / SpanContext -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>${otel.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Context -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-context</artifactId>
+            <version>${otel.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- AutoConfigurationCustomizerProvider SPI -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-extension-autoconfigure-spi</artifactId>
+            <version>${otel.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- LocalRootSpan (io.opentelemetry.instrumentation.api.instrumenter) — agent API -->
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-instrumentation-api</artifactId>
+            <version>${otel.instrumentation.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>
