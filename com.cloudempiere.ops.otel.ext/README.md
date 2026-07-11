@@ -66,3 +66,7 @@ Nothing else — no `indexed_attributes` change (already present), no iDempiere 
 Reload a page (e.g. the `/sk/` PLP), open its root span in X-Ray, read `idempiere.sql.*`.
 `count ≫ distinct` → N+1 (frontend/resolver shape); high `db_ms` + low `distinct` → backend
 index/plan, with `top_statement` naming the query.
+
+For a full analysis workflow (ranking queries, trace drill-down, interpretation rules,
+X-Ray CLI gotchas), hand an LLM agent the ready-made prompt in
+[`docs/PROMPT-sql-fanout-analysis.md`](docs/PROMPT-sql-fanout-analysis.md).
