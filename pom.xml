@@ -21,5 +21,11 @@
 		<module>com.cloudempiere.ops.trace.webui.feature</module>
 		<module>com.cloudempiere.ops.rest.feature</module>
 		<module>com.cloudempiere.ops.collector.p2</module>
+		<!-- Plain-Maven (packaging=jar) unit tests for the pure-logic classes. Unlike the Tycho
+		     test fragments elsewhere in CLDE these need no OSGi runtime and no database, so they
+		     RUN here rather than merely compiling. Kept out of the reactor previously with the
+		     note "JUnit 5 isn't in the iDempiere P2" — which is not the reason it works: this
+		     module takes JUnit from Maven Central, not from P2. -->
+		<module>com.cloudempiere.ops.collector.test</module>
 	</modules>
 </project>
