@@ -4,7 +4,7 @@ Bundle-Name: CloudEmpiere OpenTelemetry API (shared lib)
 Bundle-SymbolicName: com.cloudempiere.ops.lib.opentelemetry;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Bundle-Vendor: CloudEmpiere
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.cloudempiere.ops.lib.opentelemetry
 Bundle-ClassPath: .,
  lib/opentelemetry-api-1.62.0.jar,
