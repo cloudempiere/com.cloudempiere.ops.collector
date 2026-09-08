@@ -17,8 +17,8 @@
 		<!-- JavaSE-17: matches the iDempiere 10 / Java 11 runtime and the rest of the
 		     workspace. ADR-001 §4.1 mentions JavaSE-17; bump here (and in the bundle
 		     MANIFEST BREE) only once core moves to v13+/Java 17. -->
-		<maven.compiler.source>11</maven.compiler.source>
-		<maven.compiler.target>11</maven.compiler.target>
+		<maven.compiler.source>17</maven.compiler.source>
+		<maven.compiler.target>17</maven.compiler.target>
 		<idempiere.version>14.0.0</idempiere.version>
 		<maven-clean-plugin.version>2.5</maven-clean-plugin.version>
 		<lifecycle.mapping.version>1.0.0</lifecycle.mapping.version>
