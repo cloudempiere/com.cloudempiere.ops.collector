@@ -26,6 +26,9 @@ import org.osgi.service.component.runtime.dto.UnsatisfiedReferenceDTO;
 
 import com.cloudempiere.ops.collector.api.OpsEvent;
 import com.cloudempiere.ops.collector.api.OpsStatusService;
+import com.cloudempiere.ops.collector.internal.customspi.CustomSpiHealthSource;
+import com.cloudempiere.ops.collector.internal.customspi.RequiredSpi;
+import com.cloudempiere.ops.collector.internal.customspi.SpiRegistry;
 
 /**
  * Aggregates the collector's internal state behind the exported {@link OpsStatusService}
@@ -52,6 +55,9 @@ public class OpsStatusProvider implements OpsStatusService {
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private ServiceComponentRuntime scr;
 
+	@Reference(cardinality = ReferenceCardinality.MANDATORY)
+	private CustomSpiHealthSource customSpi;
+
 	private BundleContext ctx;
 
 	@Activate
@@ -66,7 +72,10 @@ public class OpsStatusProvider implements OpsStatusService {
 
 	@Override
 	public boolean isReady() {
-		return boot.isReady() && !shutdown.isDraining();
+		// customSpi.isAllRequiredActive() is the one deliberately gating source in this collector
+		// (SPEC-custom-spi-health) — a missing extraction-work SPI means the system should not be
+		// considered ready, not merely "degraded". Every other source here is non-gating by policy.
+		return boot.isReady() && !shutdown.isDraining() && customSpi.isAllRequiredActive();
 	}
 
 	@Override
@@ -132,7 +141,26 @@ public class OpsStatusProvider implements OpsStatusService {
 		out.put("bundles", bundles);
 		out.put("components", components);
 		out.put("summary", summary);
+		out.put("custom_spi", customSpiStatus());
 		return out;
+	}
+
+	/** Extraction-work SPI register status (SPEC-custom-spi-health) — the one gating source. */
+	private Map<String, Object> customSpiStatus() {
+		List<String> missingNow = new ArrayList<>(customSpi.missingSpiNames());
+		int optionalCount = 0;
+		for (RequiredSpi seam : SpiRegistry.all()) {
+			if (seam.optional()) optionalCount++;
+		}
+		int required = SpiRegistry.all().size() - optionalCount;
+
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("required", required);
+		m.put("optional", optionalCount);
+		m.put("active", required - missingNow.size());
+		m.put("missing", missingNow);
+		m.put("all_active", customSpi.isAllRequiredActive());
+		return m;
 	}
 
 	private static String bundleState(int s) {

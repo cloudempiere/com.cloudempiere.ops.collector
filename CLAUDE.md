@@ -147,6 +147,20 @@ single-tier). See `docs/DEPLOY-clde-infra-bake.md` for per-tier feature IUs.
   (ALERT), `trx_leak_storm`/`pool_exhausted` (PANIC), `ops.runtime.ok` (AUDIT recovery). **Non-gating
   by default** — `/readyz` stays strictly A/B/C-infra; getters (`hasTrxLeakStorm()`, …) are exposed
   for an opt-in readiness contribution only.
+- **`internal/customspi/`** (SPEC-custom-spi-health) is the **only gating source in this collector**.
+  `SpiRegistry` catalogs the 83 extraction-work `Core.getXxx()` seams (source of truth:
+  `cloudempiere-workspace/docs/architecture/plugin_extraction/SPI-CALL-SITE-CONVENTION.md` §5) that
+  are mandatory on every CloudEmpiere deployment. `CustomSpiHealthSource` polls the OSGi service
+  registry directly (`BundleContext.getServiceReferences(String, String)` — class names as Strings,
+  same no-compile-dep shim convention as OTel/Hikari; deliberately **not** via `Core.getXxx()`, since
+  some accessors haven't migrated off their `Default*` fallback and would mask a missing plugin) and
+  emits `ops.customspi.missing` (PANIC) per newly-missing seam, `recovered`/`all_active` (AUDIT).
+  `OpsStatusProvider.isReady()` ANDs in `customSpi.isAllRequiredActive()` (fail-closed until the
+  first poll completes) — every other source here is non-gating by policy; this one is the deliberate
+  exception, because a missing extraction-work seam means the system is silently running on vanilla
+  iDempiere behavior for that seam, not merely "degraded". **Known gap:** `Core.java` has 156
+  `I.../getXxx()` accessors total; only these 83 vetted ones are in the registry — see the SPEC's
+  "Open questions" before assuming the registry is exhaustive.
 - **Runtime knobs (env vars):** `OPS_COLLECTOR_EVENT_BUFFER_SIZE`, `OPS_COLLECTOR_SCR_POLL_SECONDS`,
   `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS` (30), `OPS_COLLECTOR_BROADCAST_COUNTDOWN_SECONDS` (defaults
   to drain window, clamped to ≤ drain), `OPS_COLLECTOR_BROADCAST_ON_SHUTDOWN` (true on webui tier —
@@ -154,4 +168,5 @@ single-tier). See `docs/DEPLOY-clde-infra-bake.md` for per-tier feature IUs.
   `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` (gates the mutating `POST /warmup`); runtime-health (Phase 1):
   `OPS_COLLECTOR_RUNTIME_POLL_SECONDS` (60), `OPS_COLLECTOR_TRX_WARN_SECONDS` (300),
   `OPS_COLLECTOR_TRX_CRITICAL_SECONDS` (3600), `OPS_COLLECTOR_TRX_LEAK_STORM_COUNT` (10),
-  `OPS_COLLECTOR_POOL_WARN_RATIO` (0.85).
+  `OPS_COLLECTOR_POOL_WARN_RATIO` (0.85); custom-SPI health (SPEC-custom-spi-health):
+  `OPS_COLLECTOR_CUSTOMSPI_POLL_SECONDS` (30 — tighter than the others, gates `/readyz`).

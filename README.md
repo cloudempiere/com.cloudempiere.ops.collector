@@ -7,7 +7,9 @@ service, unauthenticated health probes, and an M2M-authenticated REST API. A com
 enriches webui OpenTelemetry spans.
 
 > **Why:** a bundle can be OSGi `ACTIVE` while its DS components are unsatisfied — invisible to
-> `docker ps`/ECS/ALB. "Healthy" means bundle ACTIVE **and** every component SATISFIED.
+> `docker ps`/ECS/ALB. "Healthy" means bundle ACTIVE **and** every component SATISFIED **and**, for
+> the 83 extraction-work SPI seams cataloged in `docs/specs/SPEC-custom-spi-health.md`, every one
+> registered — the one condition that gates `/readyz` outright.
 
 Design: [`docs/ADR-001`](docs/ADR-001-iDempiere-Operational-Observability.md). Working notes for
 contributors: [`CLAUDE.md`](CLAUDE.md).
