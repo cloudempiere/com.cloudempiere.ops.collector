@@ -2,7 +2,7 @@
 <feature
       id="com.cloudempiere.ops.trace.webui.feature"
       label="CloudEmpiere Webui Trace Enrichment"
-      version="1.0.0.qualifier"
+      version="14.0.0.qualifier"
       provider-name="CloudEmpiere">
 
    <description url="https://github.com/cloudempiere/com.cloudempiere.ops.collector">

@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.cloudempiere</groupId>
   <artifactId>com.cloudempiere.ops.collector.test</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>14.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <!--
@@ -28,7 +28,7 @@
     <dependency>
       <groupId>com.cloudempiere</groupId>
       <artifactId>com.cloudempiere.ops.collector</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>14.0.0-SNAPSHOT</version>
       <scope>test</scope>
       <!--
         The collector imports io.opentelemetry.api.trace, so its Tycho-flattened POM carries a

@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: CloudEmpiere Operational Observability Collector
 Bundle-SymbolicName: com.cloudempiere.ops.collector;singleton:=true
-Bundle-Version: 1.0.0.qualifier
+Bundle-Version: 14.0.0.qualifier
 Bundle-Vendor: CloudEmpiere
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.cloudempiere.ops.collector
