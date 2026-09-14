@@ -4,7 +4,6 @@
  *****************************************************************************/
 package com.cloudempiere.ops.rest;
 
-import java.util.List;
 import java.util.Properties;
 
 import javax.ws.rs.GET;
