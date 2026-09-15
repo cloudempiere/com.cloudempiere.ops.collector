@@ -27,7 +27,7 @@ Import-Package: org.osgi.framework;version="[1.10,2)",
  io.opentelemetry.api.trace;version="[1.40,2)",
  org.apache.logging.log4j;version="[2.20,3)";resolution:=optional
 Web-ContextPath: ops
-Jetty-WarPatchFragmentFolderPath: /
+Jetty-Environment: ee8
 Service-Component: OSGI-INF/*.xml
 Bundle-ActivationPolicy: lazy
 Export-Package: com.cloudempiere.ops.collector.api;version="1.0.0"
