@@ -1,0 +1,187 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.cloudempiere</groupId>
+		<artifactId>com.cloudempiere.ops.collector.parent</artifactId>
+		<version>14.0.0-SNAPSHOT</version>
+		<relativePath>../com.cloudempiere.ops.collector.parent/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>com.cloudempiere.ops.collector.itest</artifactId>
+	<packaging>eclipse-test-plugin</packaging>
+	<name>CloudEmpiere Ops Collector Live-OSGi Tests</name>
+	<description>Fragment-Host test bundle that runs against a real, booted OSGi framework — the
+		complement to com.cloudempiere.ops.collector.test's fakes-only unit tests.</description>
+
+	<properties>
+		<!-- Tests are NOT executed by default, matching every other CLDE test fragment (e.g.
+		     org.cloudempiere.extensions.test): they need a live iDempiere OSGi runtime
+		     (testRuntime=p2Installed) resolved from a full local reactor build.
+		     Run deliberately with: mvn verify -DskipTests=false -->
+		<skipTests>true</skipTests>
+		<sonar.skip>true</sonar.skip>
+		<test.groups>integration</test.groups>
+		<test.excludedGroups>unit,e2e,slow</test.excludedGroups>
+		<!-- Default workspace location, same convention as the cloudempiere-local profile in
+		     com.cloudempiere.ops.collector.parent/pom.xml. Override with -Dcloudempiere.workspace=... -->
+		<cloudempiere.workspace>${user.home}/github/idempiere-cloudempiere</cloudempiere.workspace>
+	</properties>
+
+	<!-- everyRequiredSeamHasARealRegisteredImplementation checks all 82 non-optional SpiRegistry
+	     seams against the real OSGi service registry, so the launch needs every plugin that
+	     implements one of them installed alongside com.cloudempiere.ops.collector itself — not
+	     just the iDempiere core P2 that idempiere-core (declared in the parent's
+	     build.ops.collector profile) already provides. Mapped 2026-09-18 by grepping every sibling
+	     repo under ~/github/idempiere-cloudempiere for "implements <SeamInterface>" and resolving
+	     each hit's nearest MANIFEST.MF Bundle-SymbolicName. Most of the 14 distinct bundles found
+	     (sk.cloudempiere.fixedasset, com.cloudempiere.allocation, com.cloudempiere.model,
+	     org.cloudempiere.extensions, com.cloudempiere.base.service, com.cloudempiere.pricing,
+	     org.idempiere.wms, com.cloudempiere.shipping, com.cloudempiere.production,
+	     com.cloudempiere.core) already live inside the iDempiereCLDE reactor (capabilities/,
+	     core-ext/, extracted-libs/) and publish to its composite P2, added below. The remaining
+	     four (com.cloudempiere.core.base, com.cloudempiere.core.commerce, org.idempiere.banking,
+	     com.cloudempiere.vocabulary.base) are separate sibling repos with their own local P2
+	     outputs, added individually. -->
+	<repositories>
+		<repository>
+			<id>cloudempiere-composite</id>
+			<url>file:///${cloudempiere.workspace}/iDempiereCLDE/_composite/com.cloudempiere.composite.p2/target/repository</url>
+			<layout>p2</layout>
+		</repository>
+		<repository>
+			<id>cloudempiere-core-extensions</id>
+			<url>file:///${cloudempiere.workspace}/com.cloudempiere.core/com.cloudempiere.core.extensions.p2/target/repository</url>
+			<layout>p2</layout>
+		</repository>
+		<repository>
+			<id>idempiere-banking</id>
+			<url>file:///${cloudempiere.workspace}/org.idempiere.banking/org.idempiere.banking.p2.site/target/repository</url>
+			<layout>p2</layout>
+		</repository>
+		<repository>
+			<id>cloudempiere-vocabulary-extensions</id>
+			<url>file:///${cloudempiere.workspace}/com.cloudempiere.vocabulary/com.cloudempiere.vocabulary.extensions.p2/target/repository</url>
+			<layout>p2</layout>
+		</repository>
+	</repositories>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-surefire-plugin</artifactId>
+				<configuration>
+					<testRuntime>p2Installed</testRuntime>
+					<skipTests>${skipTests}</skipTests>
+					<providerHint>junit59</providerHint>
+					<useUIHarness>false</useUIHarness>
+					<groups>${test.groups}</groups>
+					<excludedGroups>${test.excludedGroups}</excludedGroups>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>target-platform-configuration</artifactId>
+				<version>${tycho.version}</version>
+				<configuration>
+					<dependency-resolution>
+						<!-- combine.children=append is load-bearing; without it this list REPLACES
+						     the parent's requirements and the OSGi test runtime cannot start. -->
+						<extraRequirements combine.children="append">
+							<!-- The product IU. Without it p2 installs only the fragment, its host,
+							     org.eclipse.core.runtime and org.eclipse.equinox.common, and the launch
+							     fails with "No launcher bundle found in target/work/plugins" — director
+							     exit code 13, "Tests run: 0". -->
+							<requirement>
+								<type>p2-installable-unit</type>
+								<id>org.adempiere.server.product</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.ops.collector</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<!-- The 14 distinct bundles behind the 82 non-optional SpiRegistry seams
+							     (see the note above the <repositories> block for how these were
+							     mapped and where each one is published from). -->
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>sk.cloudempiere.fixedasset</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.allocation</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.model</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>org.idempiere.banking</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.core.commerce</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>org.cloudempiere.extensions</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.base.service</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.pricing</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>org.idempiere.wms</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.shipping</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.production</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.core</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.core.base</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+							<requirement>
+								<type>eclipse-plugin</type>
+								<id>com.cloudempiere.vocabulary.base</id>
+								<versionRange>0.0.0</versionRange>
+							</requirement>
+						</extraRequirements>
+					</dependency-resolution>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>

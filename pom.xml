@@ -27,5 +27,11 @@
 		     note "JUnit 5 isn't in the iDempiere P2" — which is not the reason it works: this
 		     module takes JUnit from Maven Central, not from P2. -->
 		<module>com.cloudempiere.ops.collector.test</module>
+		<!-- Tycho eclipse-test-plugin, Fragment-Host: com.cloudempiere.ops.collector. Runs
+		     SpiRegistry's 83 seams against a real, booted OSGi service registry — the complement
+		     to com.cloudempiere.ops.collector.test's fakes-only CustomSpiHealthSourceTest. Needs
+		     a live Equinox launch (testRuntime=p2Installed), so like every other CLDE OSGi test
+		     fragment it's skipped by default; see its own pom.xml. -->
+		<module>com.cloudempiere.ops.collector.itest</module>
 	</modules>
 </project>
