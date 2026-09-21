@@ -4,9 +4,9 @@ Bundle-Name: CloudEmpiere Ops Collector Live-OSGi Tests
 Bundle-SymbolicName: com.cloudempiere.ops.collector.itest
 Bundle-Version: 14.0.0.qualifier
 Bundle-Vendor: CloudEmpiere
-Fragment-Host: com.cloudempiere.ops.collector
+Fragment-Host: com.cloudempiere.ops.collector;bundle-version="[14.0.0,15.0.0)"
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.cloudempiere.ops.collector.itest
-Require-Bundle: org.adempiere.base;bundle-version="14.0.0"
+Require-Bundle: org.adempiere.base;bundle-version="[14.0.0,15.0.0)"
 Import-Package: org.junit.jupiter.api;version="5.6.0",
  org.osgi.framework;version="[1.10,2)"
