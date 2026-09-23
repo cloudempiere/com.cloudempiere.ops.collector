@@ -10,6 +10,7 @@ package com.cloudempiere.ops.collector.internal;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -150,7 +151,11 @@ public class EventDispatcher {
 		// rolled back (CLD-1912 Gotcha B). PANIC stays SEVERE; ALERT/AUDIT drop below it.
 		// CloudWatch metric filters key on the JSON $.severity field, not the log level, so
 		// alerting is unaffected.
-		log.log(levelFor(event.getSeverity()), toJson(event));
+		// Exactly ONE log.log() call here, on purpose -- see the CLD-1912 note above. The line is
+		// "<readable summary> | <json>" (2026-09-23), not JSON alone: the summary makes triage
+		// possible at a glance in a console/log-tail without reaching for the /events REST
+		// endpoint every time, and the JSON after it keeps the line machine-parseable.
+		log.log(levelFor(event.getSeverity()), humanReadable(event) + " | " + toJson(event));
 
 		// 2. TODO Phase 3: otel.emit(event)  — wrap in try/catch, log.warn on failure.
 
@@ -196,8 +201,38 @@ public class EventDispatcher {
 	}
 
 	/**
+	 * One-line, grep-friendly summary: {@code SEVERITY event.type (key=value, key=value, ...)}
+	 * from the event's own {@code subject} — generic across every event type this dispatcher
+	 * carries, not hand-written per type, so a new event type is readable here for free. Values
+	 * are {@code String.valueOf(...)}, not JSON-escaped/quoted — this half of the line is for a
+	 * human's eyes, the JSON half after it is for a parser's.
+	 */
+	private static String humanReadable(OpsEvent e) {
+		StringBuilder sb = new StringBuilder();
+		sb.append(e.getSeverity() == null ? "UNKNOWN" : e.getSeverity().name());
+		sb.append(' ').append(e.getEventType());
+		if (e.getSubject() != null && !e.getSubject().isEmpty()) {
+			sb.append(" (");
+			boolean first = true;
+			for (Map.Entry<String, Object> entry : e.getSubject().entrySet()) {
+				if (!first) sb.append(", ");
+				first = false;
+				sb.append(entry.getKey()).append('=').append(entry.getValue());
+			}
+			sb.append(')');
+		}
+		return sb.toString();
+	}
+
+	/**
 	 * Minimal hand-built JSON for the stdout floor. Intentionally dependency-free for the
 	 * scaffold; replaced by the log4j2 JSON layout (§4.13) when the fragment ships.
+	 * <p>
+	 * Includes {@code subject}/{@code details} (fixed 2026-09-23 — a console line reading only
+	 * {@code "event_type":"ops.customspi.missing"} with no indication of *which* interface is
+	 * useless for triage; the data was always on the event, just never reached the one sink that
+	 * exists at PANIC severity before a richer sink is wired up). {@code source} stays out: it's
+	 * the {@code OpsEvent} constructor's own fixed metadata (host/pid/tier), not a payload key.
 	 */
 	private static String toJson(OpsEvent e) {
 		StringBuilder sb = new StringBuilder(256);
@@ -210,7 +245,12 @@ public class EventDispatcher {
 		field(sb, "aggregation_hint", e.getAggregationHint());
 		if (e.getTraceId() != null) { sb.append(','); field(sb, "trace_id", e.getTraceId()); }
 		if (e.getSpanId() != null) { sb.append(','); field(sb, "span_id", e.getSpanId()); }
-		// subject/details/source intentionally summarized for the scaffold floor.
+		if (e.getSubject() != null && !e.getSubject().isEmpty()) {
+			sb.append(",\"subject\":"); writeValue(sb, e.getSubject());
+		}
+		if (e.getDetails() != null && !e.getDetails().isEmpty()) {
+			sb.append(",\"details\":"); writeValue(sb, e.getDetails());
+		}
 		sb.append('}');
 		return sb.toString();
 	}
@@ -223,6 +263,42 @@ public class EventDispatcher {
 			sb.append('"').append(escape(value)).append('"');
 		}
 		return sb;
+	}
+
+	/** Generic JSON serialization for a subject/details value -- these maps carry whatever each
+	 * event source puts in them (String, Number, Boolean, nested Map, List/Collection); anything
+	 * else falls back to its {@code toString()}, quoted, rather than throwing and losing the
+	 * whole floor line over one odd value. */
+	@SuppressWarnings("unchecked")
+	private static void writeValue(StringBuilder sb, Object v) {
+		if (v == null) {
+			sb.append("null");
+		} else if (v instanceof String) {
+			sb.append('"').append(escape((String) v)).append('"');
+		} else if (v instanceof Number || v instanceof Boolean) {
+			sb.append(v);
+		} else if (v instanceof Map) {
+			sb.append('{');
+			boolean first = true;
+			for (Map.Entry<String, Object> entry : ((Map<String, Object>) v).entrySet()) {
+				if (!first) sb.append(',');
+				first = false;
+				sb.append('"').append(escape(String.valueOf(entry.getKey()))).append("\":");
+				writeValue(sb, entry.getValue());
+			}
+			sb.append('}');
+		} else if (v instanceof Collection) {
+			sb.append('[');
+			boolean first = true;
+			for (Object item : (Collection<?>) v) {
+				if (!first) sb.append(',');
+				first = false;
+				writeValue(sb, item);
+			}
+			sb.append(']');
+		} else {
+			sb.append('"').append(escape(String.valueOf(v))).append('"');
+		}
 	}
 
 	private static String escape(String s) {

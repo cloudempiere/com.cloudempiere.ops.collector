@@ -7,6 +7,7 @@
  *****************************************************************************/
 package com.cloudempiere.ops.collector.internal.customspi;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,13 +23,15 @@ import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.ServiceReference;
 
 /**
- * Runs {@link SpiRegistry}'s 83-seam catalog against the <b>real, booted OSGi service registry</b>
- * — the thing {@link CustomSpiHealthSourceTest} (in the plain-Maven {@code
- * com.cloudempiere.ops.collector.test} module) cannot do, since it fakes {@link BundleContext}
- * entirely. This is a {@code Fragment-Host: com.cloudempiere.ops.collector} test bundle, so it
- * shares the host's classloader and boots inside the same framework as production code — a green
- * run here means every mandatory seam actually has a plugin behind it in <i>this</i> target
- * platform, not just that {@link CustomSpiHealthSource}'s polling logic is internally consistent.
+ * Runs the real {@link SpiPackageScanner} (ClassGraph + live bundle wiring) against the <b>real,
+ * booted OSGi framework</b> — the thing {@code CustomSpiHealthSourceTest} (in the plain-Maven
+ * {@code com.cloudempiere.ops.collector.test} module) cannot do, since it fakes {@code
+ * BundleContext} and injects a fixed {@link SpiScanner} entirely. This is a {@code
+ * Fragment-Host: com.cloudempiere.ops.collector} test bundle, so it shares the host's classloader
+ * and boots inside the same framework as production code — a green run here means the scan
+ * actually finds every {@code com.cloudempiere.*.spi} package in this target platform and every
+ * required interface in it actually has a plugin behind it, not just that
+ * {@link CustomSpiHealthSource}'s polling logic is internally consistent.
  * <p>
  * Deliberately NOT run by default (see this module's pom.xml) — like every other CLDE OSGi test
  * fragment, it needs a full local reactor build and a live Equinox launch (Tycho
@@ -37,10 +40,10 @@ import org.osgi.framework.ServiceReference;
  * @author CloudEmpiere
  */
 @Tag("integration")
-class SpiRegistryLiveResolutionTest {
+class SpiPackageScannerLiveResolutionTest {
 
 	private static BundleContext bundleContext() {
-		Bundle bundle = FrameworkUtil.getBundle(SpiRegistryLiveResolutionTest.class);
+		Bundle bundle = FrameworkUtil.getBundle(SpiPackageScannerLiveResolutionTest.class);
 		assertNotNull(bundle, "FrameworkUtil could not resolve the fragment's own host bundle — not running under OSGi?");
 		BundleContext ctx = bundle.getBundleContext();
 		assertNotNull(ctx, "host bundle has no BundleContext — is it actually started?");
@@ -48,16 +51,30 @@ class SpiRegistryLiveResolutionTest {
 	}
 
 	@Test
+	void scanFindsAtLeastTheThreeAdr123Packages() {
+		List<ScannedSpi> catalog = new SpiPackageScanner(bundleContext()).scan();
+
+		assertFalse(catalog.isEmpty(), "live scan found zero SPI interfaces — package pattern or "
+				+ "bundle-wiring introspection broke");
+
+		List<String> bundlesSeen = catalog.stream().map(ScannedSpi::bundleSymbolicName).distinct()
+				.collect(Collectors.toList());
+		assertTrue(bundlesSeen.contains("org.adempiere.base"),
+				"expected org.adempiere.base (com.cloudempiere.base.spi) among the scanned bundles, got: " + bundlesSeen);
+	}
+
+	@Test
 	void everyRequiredSeamHasARealRegisteredImplementation() throws Exception {
 		BundleContext ctx = bundleContext();
+		List<ScannedSpi> catalog = new SpiPackageScanner(ctx).scan();
 		List<String> missing = new ArrayList<>();
 
-		for (RequiredSpi seam : SpiRegistry.all()) {
+		for (ScannedSpi seam : catalog) {
 			if (seam.optional())
 				continue;
 			ServiceReference<?>[] refs = ctx.getServiceReferences(seam.interfaceFqcn(), null);
 			if (refs == null || refs.length == 0)
-				missing.add(seam.name() + " (" + seam.interfaceFqcn() + ", via Core." + seam.accessorName() + ")");
+				missing.add(seam.name() + " (" + seam.interfaceFqcn() + ", bundle " + seam.bundleSymbolicName() + ")");
 		}
 
 		assertTrue(missing.isEmpty(), "seams with no real OSGi service registered in this target platform: "

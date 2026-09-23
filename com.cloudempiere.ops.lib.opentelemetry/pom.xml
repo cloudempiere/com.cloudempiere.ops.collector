@@ -22,6 +22,7 @@
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <otel.api.version>1.62.0</otel.api.version>
+    <clde.bundle.kind>wrapper</clde.bundle.kind>
   </properties>
 
   <build>

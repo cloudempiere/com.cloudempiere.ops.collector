@@ -30,13 +30,18 @@
 		<cloudempiere.workspace>${user.home}/github/idempiere-cloudempiere</cloudempiere.workspace>
 	</properties>
 
-	<!-- everyRequiredSeamHasARealRegisteredImplementation checks all 82 non-optional SpiRegistry
-	     seams against the real OSGi service registry, so the launch needs every plugin that
-	     implements one of them installed alongside com.cloudempiere.ops.collector itself — not
-	     just the iDempiere core P2 that idempiere-core (declared in the parent's
-	     build.ops.collector profile) already provides. Mapped 2026-09-18 by grepping every sibling
-	     repo under ~/github/idempiere-cloudempiere for "implements <SeamInterface>" and resolving
-	     each hit's nearest MANIFEST.MF Bundle-SymbolicName. Most of the 14 distinct bundles found
+	<!-- everyRequiredSeamHasARealRegisteredImplementation now checks every non-optional interface
+	     SpiPackageScanner finds live in com.cloudempiere.{base,ui,ui.zk}.spi (213 as of 2026-09-23,
+	     ADR-123) — not the old hand-maintained SpiRegistry's 83, which is deleted. The launch needs
+	     every plugin that implements one of them installed alongside com.cloudempiere.ops.collector
+	     itself, not just the iDempiere core P2 that idempiere-core (declared in the parent's
+	     build.ops.collector profile) already provides.
+	     STALE: the 14-bundle requirement list below was mapped 2026-09-18 against the old 83-seam
+	     set. It has not been remapped for the 213-seam live scan, so this itest (already
+	     skipped-by-default) likely under-provisions until someone re-derives the full implementer
+	     bundle list the same way (grep every sibling repo under ~/github/idempiere-cloudempiere for
+	     "implements <SeamInterface>", resolve each hit's nearest MANIFEST.MF Bundle-SymbolicName)
+	     against the new 213-interface catalog. Most of the original 14 bundles found
 	     (sk.cloudempiere.fixedasset, com.cloudempiere.allocation, com.cloudempiere.model,
 	     org.cloudempiere.extensions, com.cloudempiere.base.service, com.cloudempiere.pricing,
 	     org.idempiere.wms, com.cloudempiere.shipping, com.cloudempiere.production,

@@ -27,8 +27,7 @@ import org.osgi.service.component.runtime.dto.UnsatisfiedReferenceDTO;
 import com.cloudempiere.ops.collector.api.OpsEvent;
 import com.cloudempiere.ops.collector.api.OpsStatusService;
 import com.cloudempiere.ops.collector.internal.customspi.CustomSpiHealthSource;
-import com.cloudempiere.ops.collector.internal.customspi.RequiredSpi;
-import com.cloudempiere.ops.collector.internal.customspi.SpiRegistry;
+import com.cloudempiere.ops.collector.internal.customspi.ScannedSpi;
 
 /**
  * Aggregates the collector's internal state behind the exported {@link OpsStatusService}
@@ -145,14 +144,16 @@ public class OpsStatusProvider implements OpsStatusService {
 		return out;
 	}
 
-	/** Extraction-work SPI register status (SPEC-custom-spi-health) — the one gating source. */
+	/** Extraction-work SPI live-scan status (SPEC-custom-spi-health) — the one gating source.
+	 * Catalog is the most recent poll's live scan (ADR-123), not a hand-maintained registry. */
 	private Map<String, Object> customSpiStatus() {
+		List<ScannedSpi> catalog = customSpi.lastScan();
 		List<String> missingNow = new ArrayList<>(customSpi.missingSpiNames());
 		int optionalCount = 0;
-		for (RequiredSpi seam : SpiRegistry.all()) {
+		for (ScannedSpi seam : catalog) {
 			if (seam.optional()) optionalCount++;
 		}
-		int required = SpiRegistry.all().size() - optionalCount;
+		int required = catalog.size() - optionalCount;
 
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("required", required);
