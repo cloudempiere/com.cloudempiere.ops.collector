@@ -42,7 +42,7 @@
 	     bundle list the same way (grep every sibling repo under ~/github/idempiere-cloudempiere for
 	     "implements <SeamInterface>", resolve each hit's nearest MANIFEST.MF Bundle-SymbolicName)
 	     against the new 213-interface catalog. Most of the original 14 bundles found
-	     (sk.cloudempiere.fixedasset, com.cloudempiere.allocation, com.cloudempiere.model,
+	     (sk.cloudempiere.fixedasset, com.cloudempiere.storageallocation, com.cloudempiere.model,
 	     org.cloudempiere.extensions, com.cloudempiere.base.service, com.cloudempiere.pricing,
 	     org.idempiere.wms, com.cloudempiere.shipping, com.cloudempiere.production,
 	     com.cloudempiere.core) already live inside the iDempiereCLDE reactor (capabilities/,
@@ -120,7 +120,7 @@
 							</requirement>
 							<requirement>
 								<type>eclipse-plugin</type>
-								<id>com.cloudempiere.allocation</id>
+								<id>com.cloudempiere.storageallocation</id>
 								<versionRange>0.0.0</versionRange>
 							</requirement>
 							<requirement>
