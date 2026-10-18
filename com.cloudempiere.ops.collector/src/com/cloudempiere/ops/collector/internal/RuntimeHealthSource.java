@@ -168,7 +168,8 @@ public class RuntimeHealthSource {
 		for (Trx trx : open) {
 			if (trx == null) continue;
 			Date start = trx.getStartTime();
-			if (start == null) continue;
+			// Trx.start() sets the start time; a created-but-unstarted trx reports epoch 0 (age = now)
+			if (start == null || start.getTime() <= 0) continue;
 			long ageSec = (now - start.getTime()) / 1000L;
 			if (ageSec < trxWarnSeconds) continue;
 
