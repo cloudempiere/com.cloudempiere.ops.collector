@@ -137,7 +137,7 @@ public class CustomSpiHealthSource {
 
 		Set<String> missingNow = new HashSet<>();
 		for (ScannedSpi seam : seams) {
-			if (seam.optional()) continue; // @OptionalSpi — confirmed zero implementers, never gates
+			if (seam.optional()) continue; // @OptionalSpi or a factory product (ScannedSpi.producedBy) — never gates
 			if (!isRegistered(seam.interfaceFqcn())) missingNow.add(seam.name());
 		}
 
