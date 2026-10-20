@@ -189,6 +189,23 @@ class CustomSpiHealthSourceTest {
 	}
 
 	@Test
+	void factory_product_never_gates_readiness() throws Exception {
+		// IDMS is returned by IDMSFactory.get() and is never itself a registered service.
+		ScannedSpi factory = new ScannedSpi("IDMSFactory", "com.cloudempiere.base.spi.IDMSFactory",
+				"org.adempiere.base", Bundle.ACTIVE, false);
+		ScannedSpi product = new ScannedSpi("IDMS", "com.cloudempiere.base.spi.IDMS", "org.adempiere.base",
+				Bundle.ACTIVE, false, factory.interfaceFqcn());
+		Recorded recorded = new Recorded();
+		CustomSpiHealthSource source = newSource(mockDispatcher(recorded),
+				ctxMissing(Set.of(product.interfaceFqcn())), fixedScanner(factory, product));
+
+		pollOnce(source);
+
+		assertTrue(source.isAllRequiredActive());
+		assertFalse(recorded.eventTypes.contains("ops.customspi.missing"));
+	}
+
+	@Test
 	void catalog_changing_between_polls_is_picked_up_live() throws Exception {
 		// The whole point of replacing the hand-maintained registry: a newly-appeared interface is
 		// seen on the very next poll, with no code change here.

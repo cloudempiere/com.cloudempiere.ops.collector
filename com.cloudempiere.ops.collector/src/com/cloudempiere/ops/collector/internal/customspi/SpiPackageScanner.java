@@ -8,7 +8,11 @@
 package com.cloudempiere.ops.collector.internal.customspi;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.osgi.framework.Bundle;
@@ -20,7 +24,10 @@ import org.osgi.framework.wiring.BundleWiring;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
 import io.github.classgraph.ClassInfoList;
+import io.github.classgraph.ClassRefTypeSignature;
+import io.github.classgraph.MethodInfo;
 import io.github.classgraph.ScanResult;
+import io.github.classgraph.TypeSignature;
 
 /**
  * Live discovery of every CLDE SPI interface -- replaces the hand-maintained {@code SpiRegistry}
@@ -36,6 +43,10 @@ import io.github.classgraph.ScanResult;
  * physically there. A newly-added SPI-owning bundle is picked up automatically, with zero code
  * change here, as long as it follows the naming convention.
  * <p>
+ * An interface another scanned interface returns from a method (e.g. {@code IDMS} from
+ * {@code IDMSFactory.get()}) is a factory product, not a seam: it is listed but never gates
+ * readiness -- see {@link FactoryProducts}.
+ * <p>
  * This bundle takes a compile-time {@code Import-Package} on {@code io.github.classgraph} only --
  * never on any of the {@code com.cloudempiere.*.spi} packages themselves, so adding a new one
  * never means touching this bundle's MANIFEST.MF.
@@ -50,7 +61,8 @@ final class SpiPackageScanner implements SpiScanner {
 	/**
 	 * Checked by simple annotation name only (ClassGraph reads it straight from the bytecode) so
 	 * this bundle never needs {@code com.cloudempiere.base.spi} on its own classpath just to
-	 * detect it. See {@code com.cloudempiere.base.spi.OptionalSpi}'s own javadoc.
+	 * detect it. The annotation was deleted from core 2026-10-12 (applied nowhere); the check
+	 * stays so a confirmed zero-implementer seam can be marked again without touching this bundle.
 	 */
 	private static final String OPTIONAL_ANNOTATION = "com.cloudempiere.base.spi.OptionalSpi";
 
@@ -63,6 +75,7 @@ final class SpiPackageScanner implements SpiScanner {
 	@Override
 	public List<ScannedSpi> scan() {
 		List<ScannedSpi> found = new ArrayList<>();
+		Map<String, Set<String>> returnTypesByFqcn = new HashMap<>();
 		for (Bundle bundle : ctx.getBundles()) {
 			BundleWiring wiring = bundle.adapt(BundleWiring.class);
 			if (wiring == null) continue; // not resolved (yet) -- nothing to scan
@@ -71,13 +84,14 @@ final class SpiPackageScanner implements SpiScanner {
 				if (!(pkgAttr instanceof String)) continue;
 				String pkg = (String) pkgAttr;
 				if (!SPI_PACKAGE.matcher(pkg).matches()) continue;
-				found.addAll(scanPackage(bundle, wiring, pkg));
+				found.addAll(scanPackage(bundle, wiring, pkg, returnTypesByFqcn));
 			}
 		}
-		return found;
+		return FactoryProducts.mark(found, returnTypesByFqcn);
 	}
 
-	private static List<ScannedSpi> scanPackage(Bundle bundle, BundleWiring wiring, String pkg) {
+	private static List<ScannedSpi> scanPackage(Bundle bundle, BundleWiring wiring, String pkg,
+			Map<String, Set<String>> returnTypesByFqcn) {
 		List<ScannedSpi> found = new ArrayList<>();
 		ClassLoader classLoader = wiring.getClassLoader();
 		if (classLoader == null) return found;
@@ -86,6 +100,7 @@ final class SpiPackageScanner implements SpiScanner {
 				.overrideClassLoaders(classLoader)
 				.enableClassInfo()
 				.enableAnnotationInfo()
+				.enableMethodInfo()
 				.disableNestedJarScanning()
 				.disableModuleScanning()
 				.acceptPackagesNonRecursive(pkg)
@@ -96,6 +111,7 @@ final class SpiPackageScanner implements SpiScanner {
 				if (ci.isInnerClass()) continue; // e.g. IExportExtraFieldFactory.ExtraField --
 					// a companion type nested inside a real seam, not an independent one itself
 				boolean optional = ci.hasAnnotation(OPTIONAL_ANNOTATION);
+				returnTypesByFqcn.put(ci.getName(), returnTypes(ci));
 				found.add(new ScannedSpi(ci.getSimpleName(), ci.getName(), bundle.getSymbolicName(),
 						bundle.getState(), optional));
 			}
@@ -104,5 +120,16 @@ final class SpiPackageScanner implements SpiScanner {
 			return found;
 		}
 		return found;
+	}
+
+	/** Classes the interface's declared methods return directly (no generics, no arrays). */
+	private static Set<String> returnTypes(ClassInfo ci) {
+		Set<String> types = new HashSet<>();
+		for (MethodInfo method : ci.getDeclaredMethodInfo()) {
+			TypeSignature result = method.getTypeSignatureOrTypeDescriptor().getResultType();
+			if (result instanceof ClassRefTypeSignature)
+				types.add(((ClassRefTypeSignature) result).getFullyQualifiedClassName());
+		}
+		return types;
 	}
 }

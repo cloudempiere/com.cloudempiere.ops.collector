@@ -25,13 +25,25 @@ public final class ScannedSpi {
 	private final String bundleSymbolicName;
 	private final int bundleState;
 	private final boolean optional;
+	private final String producedBy;
 
 	public ScannedSpi(String name, String interfaceFqcn, String bundleSymbolicName, int bundleState, boolean optional) {
+		this(name, interfaceFqcn, bundleSymbolicName, bundleState, optional, null);
+	}
+
+	public ScannedSpi(String name, String interfaceFqcn, String bundleSymbolicName, int bundleState, boolean optional,
+			String producedBy) {
 		this.name = name;
 		this.interfaceFqcn = interfaceFqcn;
 		this.bundleSymbolicName = bundleSymbolicName;
 		this.bundleState = bundleState;
 		this.optional = optional;
+		this.producedBy = producedBy;
+	}
+
+	/** This seam, marked as the product of {@code factoryFqcn} -- see {@link #producedBy()}. */
+	ScannedSpi withProducedBy(String factoryFqcn) {
+		return new ScannedSpi(name, interfaceFqcn, bundleSymbolicName, bundleState, optional, factoryFqcn);
 	}
 
 	public String name() { return name; }
@@ -43,8 +55,14 @@ public final class ScannedSpi {
 	/** That bundle's {@link Bundle#getState()} as of this scan (diagnostics). */
 	public int bundleState() { return bundleState; }
 	public String bundleStateName() { return stateName(bundleState); }
-	/** True when the interface carries {@code @OptionalSpi} -- never gates readiness. */
-	public boolean optional() { return optional; }
+	/** True when this seam never gates readiness: it carries {@code @OptionalSpi}, or it is a
+	 * factory product ({@link #producedBy()} is set). */
+	public boolean optional() { return optional || producedBy != null; }
+	/** FQCN of another scanned interface with a method that returns this one (e.g. {@code IDMS},
+	 * returned by {@code IDMSFactory.get()}), or {@code null}. A factory product reaches callers
+	 * through its factory and is never itself registered as a service, so the factory -- which
+	 * is scanned and gates readiness on its own -- carries the check. */
+	public String producedBy() { return producedBy; }
 
 	/** Shared with {@link CustomSpiHealthSource}'s service-reference diagnostics so both report
 	 * bundle state the same way. */
