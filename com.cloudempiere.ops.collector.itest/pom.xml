@@ -57,11 +57,6 @@
 			<layout>p2</layout>
 		</repository>
 		<repository>
-			<id>cloudempiere-core-extensions</id>
-			<url>file:///${cloudempiere.workspace}/com.cloudempiere.core/com.cloudempiere.core.extensions.p2/target/repository</url>
-			<layout>p2</layout>
-		</repository>
-		<repository>
 			<id>idempiere-banking</id>
 			<url>file:///${cloudempiere.workspace}/org.idempiere.banking/org.idempiere.banking.p2.site/target/repository</url>
 			<layout>p2</layout>
