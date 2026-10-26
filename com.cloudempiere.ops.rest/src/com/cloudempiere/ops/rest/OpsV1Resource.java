@@ -26,6 +26,7 @@ import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.ServiceReference;
 
+import com.cloudempiere.core.base.auth.AuthContextKeys;
 import com.cloudempiere.ops.collector.api.OpsEvent;
 import com.cloudempiere.ops.collector.api.OpsStatusService;
 
@@ -148,7 +149,7 @@ public class OpsV1Resource {
 	private static Caller caller() {
 		Properties ctx = Env.getCtx();
 		String userId = Env.getContext(ctx, "#AD_User_ID");
-		String appClientId = Env.getContext(ctx, Env.AD_Authorization_AppClient_ID);
+		String appClientId = Env.getContext(ctx, AuthContextKeys.AD_AUTHORIZATION_APP_CLIENT_ID);
 		boolean authenticated = !Util.isEmpty(userId) || !Util.isEmpty(appClientId);
 		if (!authenticated) {
 			return new Caller(false, false, -1);   // no principal bound (shouldn't happen behind the filter)
