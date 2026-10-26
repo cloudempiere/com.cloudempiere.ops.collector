@@ -16,6 +16,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 
+import org.cloudempiere.model.core.AuthorizationTokenContext;
 import org.compiere.model.MSysConfig;
 import org.compiere.util.Env;
 import org.compiere.util.Util;
@@ -148,7 +149,7 @@ public class OpsV1Resource {
 	private static Caller caller() {
 		Properties ctx = Env.getCtx();
 		String userId = Env.getContext(ctx, "#AD_User_ID");
-		String appClientId = Env.getContext(ctx, Env.AD_Authorization_AppClient_ID);
+		String appClientId = Env.getContext(ctx, AuthorizationTokenContext.AD_Authorization_AppClient_ID);
 		boolean authenticated = !Util.isEmpty(userId) || !Util.isEmpty(appClientId);
 		if (!authenticated) {
 			return new Caller(false, false, -1);   // no principal bound (shouldn't happen behind the filter)
