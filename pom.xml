@@ -33,7 +33,11 @@
 		     SpiRegistry) against a real, booted OSGi service registry — the complement to
 		     com.cloudempiere.ops.collector.test's fakes-only CustomSpiHealthSourceTest. Needs
 		     a live Equinox launch (testRuntime=p2Installed), so like every other CLDE OSGi test
-		     fragment it's skipped by default; see its own pom.xml. -->
-		<module>com.cloudempiere.ops.collector.itest</module>
+		     fragment it's skipped by default; see its own pom.xml.
+		     Not in the CI reactor (same as master): its pom.xml resolves the composite from a
+		     laptop path (file:///${cloudempiere.workspace}/iDempiereCLDE/_composite/...), which
+		     does not exist in CodeBuild. To bring it back, point that repository at
+		     ${cloudempiere.composite.repository.url} (set by CI) and re-add the module.
+		<module>com.cloudempiere.ops.collector.itest</module> -->
 	</modules>
 </project>
