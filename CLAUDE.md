@@ -50,7 +50,7 @@ job. Getting this wrong cost a full session. The flow:
 
 ## Build & test
 
-Tycho 2.7.5, **JavaSE-17**, Maven 3.9+. Build resolves the target platform from two P2 repos: the
+Tycho 4.0.8, **JavaSE-17**, Maven 3.9.10 (`./mvnw`). Build resolves the target platform from two P2 repos: the
 iDempiere **core** P2 and the **rest fork** P2 (for `com.trekglobal.idempiere.rest.api`).
 
 ```bash

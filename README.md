@@ -27,7 +27,7 @@ contributors: [`CLAUDE.md`](CLAUDE.md).
 
 ## Build
 
-Tycho 2.7.5, JavaSE-17, Maven 3.9+. The target platform comes from the iDempiere core P2 and the
+Tycho 4.0.8, JavaSE-17, Maven 3.9.10 (`./mvnw`). The target platform comes from the iDempiere core P2 and the
 rest-fork P2; the `cloudempiere-local` profile points at sibling `file://` checkouts:
 
 ```bash
