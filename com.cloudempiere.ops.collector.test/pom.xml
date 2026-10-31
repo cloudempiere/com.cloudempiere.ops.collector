@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.cloudempiere</groupId>
   <artifactId>com.cloudempiere.ops.collector.test</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>14.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <!--
@@ -18,8 +18,8 @@
   -->
 
   <properties>
-    <maven.compiler.source>11</maven.compiler.source>
-    <maven.compiler.target>11</maven.compiler.target>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit.version>5.10.2</junit.version>
   </properties>
@@ -28,7 +28,7 @@
     <dependency>
       <groupId>com.cloudempiere</groupId>
       <artifactId>com.cloudempiere.ops.collector</artifactId>
-      <version>1.0.0-SNAPSHOT</version>
+      <version>14.0.0-SNAPSHOT</version>
       <scope>test</scope>
       <!--
         The collector imports io.opentelemetry.api.trace, so its Tycho-flattened POM carries a
@@ -49,6 +49,29 @@
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
       <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- CustomSpiHealthSourceTest fakes BundleContext.getServiceReferences(String,String) per
+           seam FQCN. Hand-rolling that interface (~25+ methods, only one exercised) is pure
+           boilerplate; Mockito mocks it in one line and defaults every unstubbed method to a
+           harmless null/empty, which is exactly what a poll() call never touches anyway. -->
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>5.14.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- CustomSpiHealthSourceTest is the first test in this module to touch org.osgi.framework.*
+           (BundleContext/ServiceReference). It resolves at compile time transitively through the
+           ops.collector jar's own dependency metadata, but isn't pulled onto the actual Surefire
+           runtime classpath the same way (ClassNotFoundException at test-discovery time without
+           this) - this module was built only for the OSGi-free pure-logic tests originally.
+           org.osgi.core is interfaces only, no framework implementation - exactly what's needed to
+           mock against, nothing more. -->
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.core</artifactId>
+      <version>6.0.0</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

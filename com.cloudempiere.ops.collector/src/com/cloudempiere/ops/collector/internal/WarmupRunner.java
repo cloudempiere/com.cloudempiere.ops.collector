@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.compiere.model.MTable;
-import org.compiere.util.CLogger;
 import org.compiere.util.Env;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
@@ -42,8 +41,6 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
  */
 @Component(service = WarmupRunner.class)
 public class WarmupRunner {
-
-	private static final CLogger log = CLogger.getCLogger("com.cloudempiere.ops.collector");
 
 	/** Factory service interfaces whose delayed components we force-activate (§4.9). */
 	private static final String[] FACTORY_INTERFACES = {

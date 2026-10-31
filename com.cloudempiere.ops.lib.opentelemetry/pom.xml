@@ -6,7 +6,7 @@
   <parent>
     <groupId>com.cloudempiere</groupId>
     <artifactId>com.cloudempiere.ops.collector.parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>14.0.0-SNAPSHOT</version>
     <relativePath>../com.cloudempiere.ops.collector.parent/pom.xml</relativePath>
   </parent>
 
@@ -19,9 +19,10 @@
   -->
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>11</maven.compiler.source>
-    <maven.compiler.target>11</maven.compiler.target>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
     <otel.api.version>1.62.0</otel.api.version>
+    <clde.bundle.kind>wrapper</clde.bundle.kind>
   </properties>
 
   <build>

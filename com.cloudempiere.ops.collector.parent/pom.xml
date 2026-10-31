@@ -6,20 +6,20 @@
 
 	<groupId>com.cloudempiere</groupId>
 	<artifactId>com.cloudempiere.ops.collector.parent</artifactId>
-	<version>1.0.0-SNAPSHOT</version>
+	<version>14.0.0-SNAPSHOT</version>
 	<packaging>pom</packaging>
 	<name>Maven parent project for CloudEmpiere Operational Observability Collector</name>
 
 	<properties>
-		<tycho.version>2.7.5</tycho.version>
+		<tycho.version>4.0.8</tycho.version>
 		<tycho.extras.version>${tycho.version}</tycho.extras.version>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<!-- JavaSE-11: matches the iDempiere 10 / Java 11 runtime and the rest of the
+		<!-- JavaSE-17: matches the iDempiere 10 / Java 11 runtime and the rest of the
 		     workspace. ADR-001 §4.1 mentions JavaSE-17; bump here (and in the bundle
 		     MANIFEST BREE) only once core moves to v13+/Java 17. -->
-		<maven.compiler.source>11</maven.compiler.source>
-		<maven.compiler.target>11</maven.compiler.target>
-		<idempiere.version>10.0.0</idempiere.version>
+		<maven.compiler.source>17</maven.compiler.source>
+		<maven.compiler.target>17</maven.compiler.target>
+		<idempiere.version>14.0.0</idempiere.version>
 		<maven-clean-plugin.version>2.5</maven-clean-plugin.version>
 		<lifecycle.mapping.version>1.0.0</lifecycle.mapping.version>
 		<!-- iDempiere core P2 (org.adempiere.base, org.eclipse.osgi, OSGi services).
@@ -221,8 +221,8 @@
 									<arch>aarch64</arch>
 								</environment>
 							</environments>
-							<executionEnvironmentDefault>JavaSE-11</executionEnvironmentDefault>
-							<executionEnvironment>JavaSE-11</executionEnvironment>
+							<executionEnvironmentDefault>JavaSE-17</executionEnvironmentDefault>
+							<executionEnvironment>JavaSE-17</executionEnvironment>
 						</configuration>
 					</plugin>
 				</plugins>

@@ -46,6 +46,7 @@ public class SeverityClassifier {
 			case "ops.migration.failed":          // DB migration script in ERROR — do not mark healthy (req B)
 			case "ops.runtime.trx_leak_storm":    // many/critically-old open trx — pool will soon block (fleet-level)
 			case "ops.runtime.pool_exhausted":    // no pool headroom + threads queued — every request blocks next
+			case "ops.customspi.missing":         // a mandatory extraction-work SPI has no registered impl — gates /readyz
 				return Severity.PANIC;
 
 			// tenant-scoped, blocks business

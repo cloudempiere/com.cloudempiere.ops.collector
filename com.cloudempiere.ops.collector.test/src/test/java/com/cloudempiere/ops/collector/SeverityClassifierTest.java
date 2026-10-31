@@ -29,6 +29,13 @@ class SeverityClassifierTest {
 	}
 
 	@Test
+	void missing_required_custom_spi_is_panic() {
+		// SPEC-custom-spi-health: the one deliberately gating source in this collector — a missing
+		// extraction-work SPI means "the system should not run", not merely "degraded".
+		assertEquals(Severity.PANIC, classifier.classify("ops.customspi.missing"));
+	}
+
+	@Test
 	void runtime_data_layer_fleet_failures_are_panic() {
 		// SPEC-runtime-health-source §5: a leak storm / pool exhaustion is fleet-level.
 		assertEquals(Severity.PANIC, classifier.classify("ops.runtime.trx_leak_storm"));
@@ -64,6 +71,8 @@ class SeverityClassifierTest {
 		assertEquals(Severity.AUDIT, classifier.classify("task.draining"));
 		assertEquals(Severity.AUDIT, classifier.classify("plugin.warmup.completed"));
 		assertEquals(Severity.AUDIT, classifier.classify("ops.runtime.ok"));   // recovery
+		assertEquals(Severity.AUDIT, classifier.classify("ops.customspi.recovered"));
+		assertEquals(Severity.AUDIT, classifier.classify("ops.customspi.all_active"));
 	}
 
 	@Test
