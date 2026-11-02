@@ -13,6 +13,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 
 import org.osgi.framework.Bundle;
@@ -66,6 +68,13 @@ final class SpiPackageScanner implements SpiScanner {
 	 */
 	private static final String OPTIONAL_ANNOTATION = "com.cloudempiere.base.spi.OptionalSpi";
 
+	/**
+	 * Workers of one scan. They come from our own executor because {@code ClassGraph.scan()} without one makes
+	 * ThreadGroups per call that nothing destroys, about 19 each, and this scan runs on a timer: 1.1 million groups,
+	 * 86 MB of heap, after three days on a server (CLD-2507).
+	 */
+	private static final int SCAN_THREADS = 2;
+
 	private final BundleContext ctx;
 
 	SpiPackageScanner(BundleContext ctx) {
@@ -76,22 +85,33 @@ final class SpiPackageScanner implements SpiScanner {
 	public List<ScannedSpi> scan() {
 		List<ScannedSpi> found = new ArrayList<>();
 		Map<String, Set<String>> returnTypesByFqcn = new HashMap<>();
-		for (Bundle bundle : ctx.getBundles()) {
-			BundleWiring wiring = bundle.adapt(BundleWiring.class);
-			if (wiring == null) continue; // not resolved (yet) -- nothing to scan
-			for (BundleCapability cap : wiring.getCapabilities(BundleRevision.PACKAGE_NAMESPACE)) {
-				Object pkgAttr = cap.getAttributes().get(BundleRevision.PACKAGE_NAMESPACE);
-				if (!(pkgAttr instanceof String)) continue;
-				String pkg = (String) pkgAttr;
-				if (!SPI_PACKAGE.matcher(pkg).matches()) continue;
-				found.addAll(scanPackage(bundle, wiring, pkg, returnTypesByFqcn));
+		ExecutorService executor = Executors.newFixedThreadPool(SCAN_THREADS, SpiPackageScanner::daemonThread);
+		try {
+			for (Bundle bundle : ctx.getBundles()) {
+				BundleWiring wiring = bundle.adapt(BundleWiring.class);
+				if (wiring == null) continue; // not resolved (yet) -- nothing to scan
+				for (BundleCapability cap : wiring.getCapabilities(BundleRevision.PACKAGE_NAMESPACE)) {
+					Object pkgAttr = cap.getAttributes().get(BundleRevision.PACKAGE_NAMESPACE);
+					if (!(pkgAttr instanceof String)) continue;
+					String pkg = (String) pkgAttr;
+					if (!SPI_PACKAGE.matcher(pkg).matches()) continue;
+					found.addAll(scanPackage(bundle, wiring, pkg, returnTypesByFqcn, executor));
+				}
 			}
+		} finally {
+			executor.shutdown();
 		}
 		return FactoryProducts.mark(found, returnTypesByFqcn);
 	}
 
+	private static Thread daemonThread(Runnable task) {
+		Thread thread = new Thread(task, "ops-customspi-scan");
+		thread.setDaemon(true);
+		return thread;
+	}
+
 	private static List<ScannedSpi> scanPackage(Bundle bundle, BundleWiring wiring, String pkg,
-			Map<String, Set<String>> returnTypesByFqcn) {
+			Map<String, Set<String>> returnTypesByFqcn, ExecutorService executor) {
 		List<ScannedSpi> found = new ArrayList<>();
 		ClassLoader classLoader = wiring.getClassLoader();
 		if (classLoader == null) return found;
@@ -104,7 +124,7 @@ final class SpiPackageScanner implements SpiScanner {
 				.disableNestedJarScanning()
 				.disableModuleScanning()
 				.acceptPackagesNonRecursive(pkg)
-				.scan()) {
+				.scan(executor, SCAN_THREADS)) {
 			ClassInfoList interfaces = scanResult.getAllInterfaces();
 			for (ClassInfo ci : interfaces) {
 				if (!pkg.equals(ci.getPackageName())) continue; // non-recursive, but be explicit

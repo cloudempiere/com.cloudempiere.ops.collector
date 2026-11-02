@@ -74,6 +74,13 @@
       <version>6.0.0</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <!-- SpiPackageScannerThreadGroupTest runs the real scanner; the bundle imports ClassGraph, so it is not on this classpath otherwise. -->
+      <groupId>io.github.classgraph</groupId>
+      <artifactId>classgraph</artifactId>
+      <version>4.8.147</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
