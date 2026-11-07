@@ -24,4 +24,7 @@
    <reference name="customSpi"
          interface="com.cloudempiere.ops.collector.internal.customspi.CustomSpiHealthSource"
          cardinality="1..1" policy="static" field="customSpi"/>
+   <reference name="web"
+         interface="com.cloudempiere.ops.collector.internal.WebContextReadiness"
+         cardinality="1..1" policy="static" field="web"/>
 </scr:component>
