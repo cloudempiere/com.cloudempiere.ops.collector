@@ -57,6 +57,9 @@ public class OpsStatusProvider implements OpsStatusService {
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private CustomSpiHealthSource customSpi;
 
+	@Reference(cardinality = ReferenceCardinality.MANDATORY)
+	private WebContextReadiness web;
+
 	private BundleContext ctx;
 
 	@Activate
@@ -73,8 +76,11 @@ public class OpsStatusProvider implements OpsStatusService {
 	public boolean isReady() {
 		// customSpi.isAllRequiredActive() is the one deliberately gating source in this collector
 		// (SPEC-custom-spi-health) — a missing extraction-work SPI means the system should not be
-		// considered ready, not merely "degraded". Every other source here is non-gating by policy.
-		return boot.isReady() && !shutdown.isDraining() && customSpi.isAllRequiredActive();
+		// considered ready, not merely "degraded". web.isAllDeployed() (CLD-2583) gates on the
+		// required web contexts (e.g. /webui) being deployed; it is a no-op when none are configured.
+		// Every other source here is non-gating by policy.
+		return boot.isReady() && !shutdown.isDraining() && customSpi.isAllRequiredActive()
+				&& web.isAllDeployed();
 	}
 
 	@Override
@@ -141,6 +147,7 @@ public class OpsStatusProvider implements OpsStatusService {
 		out.put("components", components);
 		out.put("summary", summary);
 		out.put("custom_spi", customSpiStatus());
+		out.put("web_contexts", web.status());
 		return out;
 	}
 

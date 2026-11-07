@@ -60,9 +60,71 @@ Full build/test details (including the two out-of-reactor/fragment test modules)
 
 - **Probes** (unauthenticated, outside `/api/v1`): `GET /ops/livez | /ops/readyz | /ops/startupz`
   — point ALB/Docker health checks at `/ops/readyz`.
+  See [Readiness](#readiness-opsreadyz) for exactly what `/ops/readyz` checks.
 - **Data API** (Bearer, M2M-capable): `GET /api/v1/ops/{startup,plugins,events}`, `POST /api/v1/ops/warmup`.
   System-tenant token required for `startup`/`plugins`/`warmup`; `events` is tenant-scoped. See
   [`docs/PROVISIONING-ops-monitor-m2m.md`](docs/PROVISIONING-ops-monitor-m2m.md).
+
+## Readiness (`/ops/readyz`)
+
+`/ops/readyz` answers `200 {"status":"ready"}` only when **all** of these hold, otherwise
+`503 {"status":"unready"}` (`503 {"status":"unavailable"}` while the collector's status service is
+not registered yet):
+
+| Gate | Source | Configure |
+|---|---|---|
+| Boot reached ready | `BootPhaseTracker` | `OPS_COLLECTOR_BOOT_STARTUP_TIMEOUT_SECONDS` |
+| Not draining (no SIGTERM) | `ShutdownHandler` | `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS` |
+| Every required extraction-work SPI registered | `customspi/CustomSpiHealthSource` | `OPS_COLLECTOR_CUSTOMSPI_POLL_SECONDS` |
+| Every required web context deployed | `WebContextReadiness` (CLD-2583) | `OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS` |
+
+The check is in-memory only: no DB query, no HTTP self-call, no session — safe for the ALB to call
+every few seconds. `/ops/livez` is **not** affected by any of these gates, so an unready task is
+not replaced by ECS.
+
+### Required web contexts (webui / preview tiers)
+
+On a webui tier, "ready" must mean the ZK web app is actually serving. Set this **environment
+variable on the iDempiere container** (the ECS task definition's `environment`, or
+`docker run -e` / docker-compose locally) — it is not an ALB, Terraform or AD_SysConfig setting:
+
+```
+OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS=/webui
+```
+
+- Comma- and/or space-separated; `webui`, `/webui` and `/webui/` are equivalent. Several contexts
+  must **all** be deployed.
+- **Unset or empty = not gating** — rest and scheduler tiers leave it unset.
+- Read once at bundle activation; a change needs a task restart.
+- Env, not SysConfig, on purpose: readiness must be decidable before the DB is reachable.
+
+How it works: Jetty's OSGi integration registers each started web app as an OSGi service carrying
+`osgi.web.contextpath=/webui`. The collector tracks that service (class-agnostic filter, no Jetty
+dependency) and counts registrations per context.
+
+What you see on stdout:
+
+```
+Web-context readiness armed for [/webui]
+web context /webui deployed (org.adempiere.ui.zk)
+```
+
+plus `ops.webcontext.deployed` / `ops.webcontext.undeployed` events (AUDIT). An "undeployed" line on
+shutdown is expected. Current state: `GET /api/v1/ops/plugins` → `web_contexts`:
+
+```json
+{ "required": ["/webui"], "deployed": ["/webui"], "missing": [], "all_deployed": true }
+```
+
+**Troubleshooting — readyz stuck at 503 on webui:** if the log shows `armed for [/webui]` but never
+`deployed`, Jetty is not publishing the service. Verified on Jetty 12.0.25; on Jetty master the
+registration moved to `OSGiDeploymentListener` behind an `if (bundle == null)` guard that would
+skip WABs such as `org.adempiere.ui.zk`. Re-verify after any Jetty upgrade. To unblock, unset the
+variable (readyz falls back to the other gates) and keep the ALB on `/webui/` until fixed.
+
+**Rollout order:** ship this plugin version → set the variable → confirm on staging that
+`/ops/readyz` never returns 200 before `/webui/` does → only then point the ALB health check at
+`/ops/readyz`.
 
 ## Deploy
 

@@ -169,4 +169,6 @@ single-tier). See `docs/DEPLOY-clde-infra-bake.md` for per-tier feature IUs.
   `OPS_COLLECTOR_RUNTIME_POLL_SECONDS` (60), `OPS_COLLECTOR_TRX_WARN_SECONDS` (300),
   `OPS_COLLECTOR_TRX_CRITICAL_SECONDS` (3600), `OPS_COLLECTOR_TRX_LEAK_STORM_COUNT` (10),
   `OPS_COLLECTOR_POOL_WARN_RATIO` (0.85); custom-SPI health (SPEC-custom-spi-health):
-  `OPS_COLLECTOR_CUSTOMSPI_POLL_SECONDS` (30 — tighter than the others, gates `/readyz`).
+  `OPS_COLLECTOR_CUSTOMSPI_POLL_SECONDS` (30 — tighter than the others, gates `/readyz`); web-context readiness (CLD-2583): `OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS`
+  (unset = not gating; e.g. `/webui` on webui/preview tiers — `/readyz` stays 503 until Jetty has
+  registered the `osgi.web.contextpath=/webui` service, see `internal/WebContextReadiness`).
