@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
 
 import org.compiere.util.CLogger;
 import org.osgi.framework.BundleContext;
@@ -77,6 +78,19 @@ public class WebContextReadiness {
 	static final String ENV_REQUIRED = "OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS";
 	static final String CONTEXT_PATH_PROPERTY = "osgi.web.contextpath";
 
+	/**
+	 * Level for the operator-facing lines ("armed", "deployed", "undeployed"). WARNING, not INFO,
+	 * on purpose: once iDempiere's {@code CLogMgt} initialises (a few seconds into boot), the root
+	 * level becomes the configured trace level — WARNING in prod — and every INFO record is
+	 * dropped from stdout and the log file, whichever thread logs it. The web app is deployed
+	 * AFTER that switch, so at INFO the "deployed" line never appears (CLD-2583 follow-up,
+	 * verified on prod 2026-11-07). WARNING is the lowest level that survives, prints as
+	 * {@code ----------->} in iDempiere's format, and does not create an AD_Issue (only SEVERE
+	 * does — see {@code EventDispatcher#levelFor}). Same choice as {@code BootPhaseTracker}'s
+	 * "BUNDLE_RESOLUTION blockers detected" line. These lines fire a handful of times per JVM.
+	 */
+	static final Level OPERATOR_LEVEL = Level.WARNING;
+
 	@Reference(cardinality = ReferenceCardinality.MANDATORY)
 	private EventDispatcher dispatcher;
 
@@ -115,9 +129,9 @@ public class WebContextReadiness {
 			t.open(); // already-deployed contexts are delivered synchronously here
 		}
 		if (required.isEmpty()) {
-			log.info("Web-context readiness: no required contexts (" + ENV_REQUIRED + " unset) — not gating");
+			log.info("Web-context readiness: no required contexts (" + ENV_REQUIRED + " unset) — not gating"); // INFO: the common, uninteresting case
 		} else {
-			log.info("Web-context readiness armed for " + required);
+			log.log(OPERATOR_LEVEL, "Web-context readiness armed for " + required);
 		}
 	}
 
@@ -217,7 +231,8 @@ public class WebContextReadiness {
 	}
 
 	/**
-	 * Called on a 0→1 or 1→0 transition only (not per service). Logs to stdout and emits
+	 * Called on a 0→1 or 1→0 transition only (not per service). Logs to stdout at
+	 * {@link #OPERATOR_LEVEL} (so it survives iDempiere's post-boot WARNING threshold) and emits
 	 * {@code ops.webcontext.deployed} / {@code ops.webcontext.undeployed} (AUDIT, default
 	 * classification) with {@code subject={kind:"web_context", context, bundle}} and
 	 * {@code details.all_deployed}. The emit is best-effort: any failure is logged and swallowed,
@@ -226,7 +241,7 @@ public class WebContextReadiness {
 	private void onChange(String context, ServiceReference<?> ref, boolean nowDeployed) {
 		String state = nowDeployed ? "deployed" : "undeployed";
 		Object bsn = ref.getProperty("osgi.web.symbolicname");
-		log.info("web context " + context + " " + state + (bsn != null ? " (" + bsn + ")" : ""));
+		log.log(OPERATOR_LEVEL, "web context " + context + " " + state + (bsn != null ? " (" + bsn + ")" : ""));
 		try {
 			Map<String, Object> subject = new HashMap<>();
 			subject.put("kind", "web_context");

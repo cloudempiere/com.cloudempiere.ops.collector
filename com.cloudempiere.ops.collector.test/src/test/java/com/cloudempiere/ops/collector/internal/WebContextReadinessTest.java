@@ -245,6 +245,47 @@ class WebContextReadinessTest {
 		assertFalse(f.match(webApp("/aXbYc", "x")), "'*' must not act as a wildcard");
 	}
 
+	/**
+	 * CLD-2583 follow-up: on prod, iDempiere raises the root level to WARNING a few seconds into
+	 * boot, and /webui deploys after that, so an INFO "deployed" line never reached stdout. The
+	 * operator-facing lines must be logged at WARNING or above.
+	 */
+	@Test
+	void transition_and_armed_lines_survive_a_warning_threshold() throws Exception {
+		Field f = WebContextReadiness.class.getDeclaredField("log");
+		f.setAccessible(true);
+		java.util.logging.Logger logger = (java.util.logging.Logger) f.get(null);
+		List<java.util.logging.LogRecord> records = new ArrayList<>();
+		java.util.logging.Handler capture = new java.util.logging.Handler() {
+			@Override public void publish(java.util.logging.LogRecord r) { records.add(r); }
+			@Override public void flush() {}
+			@Override public void close() {}
+		};
+		capture.setLevel(java.util.logging.Level.WARNING); // what prod's CLogMgt leaves in place
+		java.util.logging.Level before = logger.getLevel();
+		logger.setLevel(java.util.logging.Level.WARNING);
+		logger.addHandler(capture);
+		try {
+			FakeFramework fw = new FakeFramework();
+			WebContextReadiness w = fw.start("/webui");
+			ServiceReference<Object> zk = webApp("/webui", "org.adempiere.ui.zk");
+			register(fw, zk);
+			fw.fire(ServiceEvent.UNREGISTERING, zk);
+		} finally {
+			logger.removeHandler(capture);
+			logger.setLevel(before);
+		}
+
+		List<String> messages = new ArrayList<>();
+		for (java.util.logging.LogRecord r : records) {
+			if (capture.isLoggable(r)) messages.add(r.getMessage());
+		}
+		assertEquals(List.of(
+				"Web-context readiness armed for [/webui]",
+				"web context /webui deployed (org.adempiere.ui.zk)",
+				"web context /webui undeployed (org.adempiere.ui.zk)"), messages);
+	}
+
 	@Test
 	void parse_contexts_normalises_and_dedupes() {
 		assertEquals(List.of("/webui", "/preview"),

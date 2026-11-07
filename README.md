@@ -109,7 +109,10 @@ Web-context readiness armed for [/webui]
 web context /webui deployed (org.adempiere.ui.zk)
 ```
 
-plus `ops.webcontext.deployed` / `ops.webcontext.undeployed` events (AUDIT). An "undeployed" line on
+These lines are logged at `WARNING` (shown as `----------->` once iDempiere's log format is
+active), not `INFO`: after boot iDempiere drops `INFO` records in prod, and `/webui` deploys after
+that point. Also emitted: `ops.webcontext.deployed` / `ops.webcontext.undeployed` events (AUDIT —
+visible in `GET /api/v1/ops/events`; their stdout copy is `INFO` and therefore not shown after boot). An "undeployed" line on
 shutdown is expected. Current state: `GET /api/v1/ops/plugins` → `web_contexts`:
 
 ```json
