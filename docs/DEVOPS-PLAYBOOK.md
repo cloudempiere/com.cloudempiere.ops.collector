@@ -177,6 +177,7 @@ is AUDIT (not PANIC) because it fires transiently at boot and permanently for ti
 | `OPS_COLLECTOR_SHUTDOWN_DRAIN_SECONDS` | SIGTERM drain window |
 | `OPS_COLLECTOR_BOOT_STARTUP_TIMEOUT_SECONDS` | boot-stall threshold |
 | `OPS_COLLECTOR_WARMUP_TABLES` / `OPS_COLLECTOR_WARMUP_HTTP_ENABLED` | warmup allowlist / gate the mutating `POST /warmup` |
+| `OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS` | web contexts `/readyz` waits for, e.g. `/webui` on webui/preview tiers; unset = not gating (CLD-2583, see README §Readiness) |
 
 > **TODO (per Gotcha B):** add per-area enable/disable gates (`OPS_COLLECTOR_<AREA>_ENABLED`) so an
 > operator can disable the emit engine or a single source via a task-def env var without a rebuild.

@@ -85,12 +85,26 @@ public class WebContextReadiness {
 	private final List<ServiceTracker<Object, ServiceReference<Object>>> trackers = new ArrayList<>();
 	private volatile List<String> required = List.of();
 
+	/**
+	 * DS activation: reads {@value #ENV_REQUIRED} once and arms the trackers. The env is not
+	 * re-read afterwards — a changed value takes effect on the next JVM (task) start.
+	 */
 	@Activate
 	void activate(BundleContext ctx) {
 		start(ctx, parseContexts(System.getenv(ENV_REQUIRED)));
 	}
 
-	/** Package-private for tests: {@link #activate} minus the env read. */
+	/**
+	 * Arms one {@link ServiceTracker} per context. Package-private so tests can pass the contexts
+	 * directly instead of through the process environment.
+	 * <p>
+	 * {@link ServiceTracker#open()} delivers already-registered services synchronously, so a
+	 * context deployed before this component activated (bundle refresh, late collector start)
+	 * is counted immediately rather than waiting for a new event.
+	 *
+	 * @param ctx      this bundle's context
+	 * @param contexts normalised context paths (see {@link #parseContexts(String)}); empty = not gating
+	 */
 	void start(BundleContext ctx, List<String> contexts) {
 		required = List.copyOf(contexts);
 		for (String c : required) deployed.put(c, new AtomicInteger());
@@ -107,6 +121,11 @@ public class WebContextReadiness {
 		}
 	}
 
+	/**
+	 * DS deactivation: closes every tracker. Closing delivers {@code removedService} for each
+	 * tracked reference, so an "undeployed" line is logged per context on bundle stop — expected
+	 * during shutdown, not an incident.
+	 */
 	@Deactivate
 	void deactivate() {
 		for (ServiceTracker<?, ?> t : trackers) {
@@ -115,7 +134,13 @@ public class WebContextReadiness {
 		trackers.clear();
 	}
 
-	/** {@code true} when every required context is deployed; always {@code true} if none required. */
+	/**
+	 * The readiness contribution ANDed into {@code OpsStatusProvider#isReady()}.
+	 *
+	 * @return {@code true} when every required context has at least one registered web-app
+	 *         service; always {@code true} when no contexts are required. A plain in-memory read,
+	 *         safe on every probe.
+	 */
 	public boolean isAllDeployed() {
 		for (String c : required) {
 			AtomicInteger n = deployed.get(c);
@@ -124,7 +149,12 @@ public class WebContextReadiness {
 		return true;
 	}
 
-	/** Diagnostics for {@code OpsStatusProvider.plugins()}. */
+	/**
+	 * Diagnostics, served as {@code web_contexts} in {@code GET /api/v1/ops/plugins}.
+	 *
+	 * @return {@code {required: [...], deployed: [...], missing: [...], all_deployed: bool}};
+	 *         lists keep configuration order
+	 */
 	public Map<String, Object> status() {
 		List<String> up = new ArrayList<>();
 		List<String> missing = new ArrayList<>();
@@ -158,7 +188,14 @@ public class WebContextReadiness {
 		return Collections.unmodifiableList(new ArrayList<>(out));
 	}
 
-	/** Matches the context with or without the leading slash, whatever service class publishes it. */
+	/**
+	 * Builds the class-agnostic filter for one context. Matches the path with or without the
+	 * leading slash (Jetty normalises to {@code /webui}; other integrations may not), whatever
+	 * service class publishes it. Filter metacharacters in the path are escaped, so {@code *}
+	 * never acts as a wildcard.
+	 *
+	 * @param context a normalised context path, starting with {@code /}
+	 */
 	static Filter filterFor(String context) {
 		String bare = escape(context.substring(1));
 		String f = "(|(" + CONTEXT_PATH_PROPERTY + "=/" + bare + ")(" + CONTEXT_PATH_PROPERTY + "=" + bare + "))";
@@ -169,6 +206,7 @@ public class WebContextReadiness {
 		}
 	}
 
+	/** RFC 1960 filter-value escaping for {@code \ ( ) *}. */
 	private static String escape(String v) {
 		StringBuilder sb = new StringBuilder(v.length());
 		for (char ch : v.toCharArray()) {
@@ -178,6 +216,13 @@ public class WebContextReadiness {
 		return sb.toString();
 	}
 
+	/**
+	 * Called on a 0→1 or 1→0 transition only (not per service). Logs to stdout and emits
+	 * {@code ops.webcontext.deployed} / {@code ops.webcontext.undeployed} (AUDIT, default
+	 * classification) with {@code subject={kind:"web_context", context, bundle}} and
+	 * {@code details.all_deployed}. The emit is best-effort: any failure is logged and swallowed,
+	 * because readiness must never depend on the event pipeline.
+	 */
 	private void onChange(String context, ServiceReference<?> ref, boolean nowDeployed) {
 		String state = nowDeployed ? "deployed" : "undeployed";
 		Object bsn = ref.getProperty("osgi.web.symbolicname");
@@ -195,7 +240,13 @@ public class WebContextReadiness {
 		}
 	}
 
-	/** Tracks references only — never calls {@code getService}, so nothing to unget. */
+	/**
+	 * Counts matching registrations for one context. Tracks references only — never calls
+	 * {@code getService}, so there is nothing to unget and no service use-count is held.
+	 * A counter rather than a boolean, so two overlapping registrations of the same context
+	 * (e.g. a redeploy that registers the new handler before the old one leaves) don't
+	 * flip readiness off while one is still present.
+	 */
 	private final class Customizer implements ServiceTrackerCustomizer<Object, ServiceReference<Object>> {
 		private final String context;
 

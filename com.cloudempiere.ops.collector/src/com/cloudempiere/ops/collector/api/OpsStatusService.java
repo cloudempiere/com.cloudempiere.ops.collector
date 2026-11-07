@@ -23,7 +23,19 @@ public interface OpsStatusService {
 	/** Cheap liveness — true if the collector is running ({@code /livez}). No dependency checks. */
 	boolean isAlive();
 
-	/** Full readiness ({@code /readyz}): boot reached ready AND not draining (SIGTERM). */
+	/**
+	 * Full readiness ({@code /readyz}) — {@code true} only when ALL of:
+	 * <ol>
+	 *   <li>boot reached ready (boot phase tracker);</li>
+	 *   <li>not draining (no SIGTERM received);</li>
+	 *   <li>every required extraction-work SPI has a registered implementation
+	 *       (SPEC-custom-spi-health; fail-closed until the first poll);</li>
+	 *   <li>every web context listed in env {@code OPS_COLLECTOR_REQUIRED_WEB_CONTEXTS}
+	 *       (e.g. {@code /webui}) is deployed (CLD-2583; no-op when the env is unset).</li>
+	 * </ol>
+	 * In-memory only: never touches the DB, never makes an HTTP call, never creates a session —
+	 * safe to call on every ALB probe.
+	 */
 	boolean isReady();
 
 	/** Boot complete ({@code /startupz}): boot reached the ready phase. */
