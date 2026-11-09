@@ -75,6 +75,23 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- Eclipse: m2e resolves com.cloudempiere.ops.collector to the workspace PDE project, which
+           passes on none of the dependencies its installed POM carries. On the command line these two
+           arrive through that POM; declared here with the same versions so Eclipse compiles
+           OpsHealthServletTest (OpsHealthServlet extends HttpServlet) and BootPhaseTrackerTest
+           (org.osgi.service.component.runtime.dto) too. -->
+      <groupId>org.eclipse.jetty.toolchain</groupId>
+      <artifactId>jetty-servlet-api</artifactId>
+      <version>4.0.6</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.service.component</artifactId>
+      <version>1.5.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <!-- SpiPackageScannerThreadGroupTest runs the real scanner; the bundle imports ClassGraph, so it is not on this classpath otherwise. -->
       <groupId>io.github.classgraph</groupId>
       <artifactId>classgraph</artifactId>
